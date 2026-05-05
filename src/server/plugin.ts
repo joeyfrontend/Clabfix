@@ -23,6 +23,7 @@ export function clabfixApi(options: { groqApiKey?: string; groqModel?: string } 
   const aiService = createAIService({
     apiKey: options.groqApiKey,
     model: options.groqModel,
+    getLabDir: () => labDir,
   });
 
   return {

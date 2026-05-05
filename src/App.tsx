@@ -240,7 +240,22 @@ export default function App() {
             </div>
           </div>
           {labDir && (
-            <div className="text-[9px] text-clab-muted uppercase tracking-tight truncate max-w-[300px]" title={labDir}>
+            <div 
+              className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded" 
+              title="Click to change working directory"
+              onClick={async () => {
+                const newDir = prompt("Enter the absolute path to your Containerlab working directory:", labDir);
+                if (newDir && newDir !== labDir) {
+                  try {
+                    // We need to import setLabDir, so I'll assume it's imported at the top
+                    const updated = await import('./lib/api').then(m => m.setLabDir(newDir));
+                    setLabDir(updated);
+                  } catch (e) {
+                    alert("Failed to change directory. Does it exist?");
+                  }
+                }
+              }}
+            >
               CWD: {labDir}
             </div>
           )}
