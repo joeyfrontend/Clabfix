@@ -163,24 +163,25 @@ export default function App() {
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, dismissed: true } : m));
 
     for (const block of cmdBlocks) {
-      const lines = block.code.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
-      for (const cmd of lines) {
-        addMsg('user', `$ ${cmd}`, 'diagnostic');
-        try {
-          const result = await execCommand(cmd);
-          const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-          if (output) {
-            addMsg('model', `\`\`\`\n${output}\n\`\`\``, 'diagnostic');
-          } else {
-            addMsg('model', "✅ Command completed (no output).", 'diagnostic');
-          }
-          if (result.error) {
-            addMsg('model', `⚠️ ${result.error}`, 'diagnostic');
-          }
-        } catch {
-          addMsg('model', `⚠️ Failed to execute: ${cmd}`, 'diagnostic');
+      const script = block.code.trim();
+      if (!script) continue;
+      
+      addMsg('user', `Executing Script:\n\`\`\`bash\n${script}\n\`\`\``, 'diagnostic');
+      try {
+        const result = await execCommand(script);
+        const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+        if (output) {
+          addMsg('model', `\`\`\`\n${output}\n\`\`\``, 'diagnostic');
+        } else {
+          addMsg('model', "✅ Script completed (no output).", 'diagnostic');
         }
+        if (result.error) {
+          addMsg('model', `⚠️ ${result.error}`, 'diagnostic');
+        }
+      } catch {
+        addMsg('model', `⚠️ Failed to execute script.`, 'diagnostic');
       }
+    }
     }
   };
 
