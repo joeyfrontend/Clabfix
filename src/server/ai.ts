@@ -2,7 +2,7 @@ import Groq from "groq-sdk";
 import type { MessageRole } from "../types";
 import { exec } from "child_process";
 
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_MODEL = "llama-3.1-8b-instant";
 const MAX_HISTORY = 6;
 const MAX_MESSAGE_CHARS = 8_000;
 const MIN_REQUEST_GAP_MS = 1_500;
