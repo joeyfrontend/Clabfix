@@ -91,6 +91,7 @@ function parseGroqError(error: unknown): ParsedError {
 
   const detail = payload?.error?.message || rawMessage;
   const isRateLimit = /rate limit|429|too many requests/i.test(detail);
+  const isFailedGeneration = /failed to call a function|failed_generation/i.test(detail);
 
   if (isRateLimit) {
     return {
@@ -98,6 +99,15 @@ function parseGroqError(error: unknown): ParsedError {
       retryable: true,
       retryAfterMs: 5000,
       statusCode: 429,
+    };
+  }
+
+  if (isFailedGeneration) {
+    return {
+      message: "API error: Failed to parse tool call. Retrying.",
+      retryable: true,
+      retryAfterMs: 1500,
+      statusCode: 400,
     };
   }
 
