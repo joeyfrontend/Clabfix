@@ -182,7 +182,6 @@ export default function App() {
         addMsg('model', `⚠️ Failed to execute script.`, 'diagnostic');
       }
     }
-    }
   };
 
   const handleDismiss = (id: string) => {
