@@ -1,12 +1,11 @@
-import Groq from "groq-sdk";
 import type { MessageRole } from "../types";
 import { spawn } from "child_process";
 import { globalLogStream } from "./events";
 
-const DEFAULT_MODEL = "llama-3.1-8b-instant";
+const DEFAULT_MODEL = "google/gemini-2.0-flash-001";
 const MAX_HISTORY = 6;
 const MAX_MESSAGE_CHARS = 8_000;
-const MIN_REQUEST_GAP_MS = 1_500;
+const MIN_REQUEST_GAP_MS = 1_000;
 const CACHE_TTL_MS = 60_000;
 const MAX_ATTEMPTS = 4;
 const MAX_AUTONOMOUS_LOOPS = 3;
@@ -80,25 +79,17 @@ function trimHistory(history: ChatTurn[]): ChatTurn[] {
   }));
 }
 
-function parseGroqError(error: unknown): ParsedError {
+function parseApiError(error: unknown): ParsedError {
   const rawMessage = error instanceof Error ? error.message : String(error);
-  let payload: any = null;
 
-  try {
-    payload = JSON.parse(rawMessage.substring(rawMessage.indexOf('{')));
-  } catch {
-    payload = null;
-  }
-
-  const detail = payload?.error?.message || rawMessage;
-  const isRateLimit = /rate limit|429|too many requests/i.test(detail);
-  const isFailedGeneration = /failed to call a function|failed_generation/i.test(detail);
+  const isRateLimit = /rate limit|429|too many requests/i.test(rawMessage);
+  const isFailedGeneration = /failed to call a function|failed_generation/i.test(rawMessage);
 
   if (isRateLimit) {
     return {
-      message: "Rate limited by Groq API. Retrying shortly.",
+      message: "Rate limited by API. Retrying shortly.",
       retryable: true,
-      retryAfterMs: 5000,
+      retryAfterMs: 3000,
       statusCode: 429,
     };
   }
@@ -113,7 +104,7 @@ function parseGroqError(error: unknown): ParsedError {
   }
 
   return {
-    message: detail,
+    message: rawMessage,
     retryable: false,
     statusCode: 500,
   };
@@ -145,19 +136,57 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
       if (code !== 0 && !output) output = `Exited with code ${code}`;
       if (!output.trim()) output = "(Command returned no output)";
       
-      globalLogStream.log(JSON.stringify({ type: 'done', text: `[AI Execution Finished] Code: ${code}` }));
+      globalLogStream.log(JSON.stringify({ type: 'done', text: `[Execution Finished] Code: ${code}` }));
       resolve(truncateText(output, 1500));
     });
 
     child.on("error", (error) => {
-      globalLogStream.log(JSON.stringify({ type: 'error', text: `[AI Execution Error] ${error.message}` }));
+      globalLogStream.log(JSON.stringify({ type: 'error', text: `[Execution Error] ${error.message}` }));
       resolve(error.message);
     });
   });
 }
 
+// ── OpenRouter API via raw fetch ────────────────────────
+
+async function callOpenRouter(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  tools?: any[]
+): Promise<any> {
+  const body: any = { model, messages };
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/joeyfrontend/Clabfix",
+      "X-Title": "Clabfix",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    const statusCode = res.status;
+    if (statusCode === 429) {
+      throw new Error(`Rate limited by API (429). ${errText}`);
+    }
+    throw new Error(`OpenRouter API error ${statusCode}: ${errText}`);
+  }
+
+  return res.json();
+}
+
+// ── Service factory ─────────────────────────────────────
+
 export function createAIService(options: { apiKey?: string; model?: string; getLabDir?: () => string }) {
-  let aiInstance: Groq | null = null;
   const model = options.model || DEFAULT_MODEL;
   const cache = new Map<string, { text: string; expiresAt: number }>();
   const inFlight = new Map<string, Promise<string>>();
@@ -165,17 +194,14 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
   let cooldownUntil = 0;
   let lastRequestAt = 0;
 
-  function getAI() {
+  function getApiKey(): string {
     if (!options.apiKey) {
       throw new AIRequestError(
-        "GROQ_API_KEY is not configured. Add it to .env and restart the dev server.",
+        "OPENROUTER_API_KEY is not configured. Add it to .env and restart the dev server.",
         500
       );
     }
-    if (!aiInstance) {
-      aiInstance = new Groq({ apiKey: options.apiKey });
-    }
-    return aiInstance;
+    return options.apiKey;
   }
 
   function buildContents(request: AIRequest): any[] {
@@ -225,6 +251,7 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
     let lastError: ParsedError | null = null;
     let finalContent = "";
     const cwd = options.getLabDir ? options.getLabDir() : process.cwd();
+    const apiKey = getApiKey();
 
     const tools = [
       {
@@ -253,18 +280,12 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
         lastRequestAt = Date.now();
 
         try {
-          currentResponse = await getAI().chat.completions.create({
-            model,
-            messages,
-            tools: tools as any,
-            tool_choice: "auto",
-          });
-
+          currentResponse = await callOpenRouter(apiKey, model, messages, tools);
           cooldownUntil = 0;
           success = true;
           break;
         } catch (error) {
-          const parsed = parseGroqError(error);
+          const parsed = parseApiError(error);
           lastError = parsed;
 
           if (!parsed.retryable || attempt === MAX_ATTEMPTS) {
@@ -278,7 +299,7 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
 
       if (!success || !currentResponse) break;
 
-      const message = currentResponse.choices[0]?.message;
+      const message = currentResponse.choices?.[0]?.message;
       if (!message) break;
 
       if (message.content) {
@@ -305,7 +326,6 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
               name: toolCall.function.name,
               content: result,
             });
-            // We can also tell the user what we ran by appending to finalContent
             finalContent += `\n*Executed command:* \`${commandToRun}\`\n`;
           } else {
             messages.push({

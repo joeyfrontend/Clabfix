@@ -8,8 +8,8 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss(), clabfixApi({
-      groqApiKey: env.GROQ_API_KEY,
-      groqModel: env.GROQ_MODEL,
+      apiKey: env.OPENROUTER_API_KEY,
+      model: env.OPENROUTER_MODEL,
     })],
     resolve: {
       alias: {

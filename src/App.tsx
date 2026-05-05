@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { cn } from './lib/utils';
 import { chatWithAI, analyzeTopology, troubleshootLogs } from './lib/ai';
-import { execCommand, extractCodeBlocks, getLabDir } from './lib/api';
+import { execCommand, extractCodeBlocks, getLabDir, setLabDir } from './lib/api';
 import yaml from 'js-yaml';
 import type { Message, TabType, NodeInfo, LinkInfo } from './types';
 import { createMessage } from './types';
@@ -22,11 +22,11 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [topologyYaml, setTopologyYaml] = useState('');
   const [activeTab, setActiveTab] = useState<TabType>('chat');
-  const [labDir, setLabDir] = useState('');
+  const [labDir, setLabDirState] = useState('');
 
   // Fetch lab directory on mount
   useEffect(() => {
-    getLabDir().then(setLabDir).catch(() => {});
+    getLabDir().then(setLabDirState).catch(() => {});
   }, []);
 
   // Parse topology YAML
@@ -249,7 +249,7 @@ export default function App() {
                   try {
                     // We need to import setLabDir, so I'll assume it's imported at the top
                     const updated = await import('./lib/api').then(m => m.setLabDir(newDir));
-                    setLabDir(updated);
+                    setLabDirState(updated);
                   } catch (e) {
                     alert("Failed to change directory. Does it exist?");
                   }
@@ -274,6 +274,22 @@ export default function App() {
               <TopologyEditor
                 topologyYaml={topologyYaml} setTopologyYaml={setTopologyYaml}
                 onAnalyze={handleTopologyAnalyze} isAnalyzing={isTyping}
+                onFileLoaded={(fileName) => {
+                  addMsg('model', `✅ Loaded topology file: **${fileName}**`);
+                  // Prompt user to confirm the lab directory
+                  const dir = prompt(
+                    'Set the working directory for this lab (absolute path to the folder containing your .clab.yml):',
+                    labDir || '/home'
+                  );
+                  if (dir && dir.trim()) {
+                    setLabDir(dir.trim()).then((updated) => {
+                      setLabDirState(updated);
+                      addMsg('model', `📂 Working directory set to: **${updated}**`);
+                    }).catch(() => {
+                      addMsg('model', '⚠️ Failed to update working directory.');
+                    });
+                  }
+                }}
               />
             )}
             {activeTab === 'logs' && (

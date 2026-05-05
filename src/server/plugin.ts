@@ -19,11 +19,11 @@ function parseBody(req: Connect.IncomingMessage): Promise<any> {
   });
 }
 
-export function clabfixApi(options: { groqApiKey?: string; groqModel?: string } = {}): Plugin {
+export function clabfixApi(options: { apiKey?: string; model?: string } = {}): Plugin {
   let labDir = process.cwd();
   const aiService = createAIService({
-    apiKey: options.groqApiKey,
-    model: options.groqModel,
+    apiKey: options.apiKey,
+    model: options.model,
     getLabDir: () => labDir,
   });
 

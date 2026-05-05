@@ -6,16 +6,20 @@ type TopologyEditorProps = {
   setTopologyYaml: (v: string) => void;
   onAnalyze: () => void;
   isAnalyzing: boolean;
+  onFileLoaded?: (fileName: string) => void;
 };
 
-export default function TopologyEditor({ topologyYaml, setTopologyYaml, onAnalyze, isAnalyzing }: TopologyEditorProps) {
+export default function TopologyEditor({ topologyYaml, setTopologyYaml, onAnalyze, isAnalyzing, onFileLoaded }: TopologyEditorProps) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setTopologyYaml(ev.target?.result as string);
+    reader.onload = (ev) => {
+      setTopologyYaml(ev.target?.result as string);
+      onFileLoaded?.(file.name);
+    };
     reader.readAsText(file);
     e.target.value = '';
   };
