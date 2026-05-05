@@ -1,0 +1,6 @@
+{
+  "name": "Clabfix",
+  "description": "AI-powered troubleshooting agent for Containerlab network topologies and diagnostic logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,229 @@
+name: "gns3-bgp-frr"
+topology:
+  nodes:
+    Switch1:
+      kind: "bridge"
+    alpine-1:
+      kind: "linux"
+      image: "alpine:latest"
+    asn1border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn1border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn1border2:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn1border2/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn1border3:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn1border3/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn1internal1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn1internal1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn1internal2:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn1internal2/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn2border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn2border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn3border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn3border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn4border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn4border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn5border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn5border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn6border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn6border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn6cpe1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn6cpe1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+    asn7border1:
+      kind: "linux"
+      image: "frrouting/frr:v8.2.2"
+      binds:
+        - "labporter-files/gns3-bgp-frr/asn7border1/etc/frr:/etc/frr"
+      cmd: "sleep infinity"
+      cap-add:
+        - "NET_ADMIN"
+        - "SYS_ADMIN"
+      sysctls:
+        net.ipv4.ip_forward: "1"
+        net.ipv6.conf.all.forwarding: "1"
+  links:
+    -
+      endpoints:
+        - "asn1internal1:eth7"
+        - "asn1border2:eth1"
+    -
+      endpoints:
+        - "asn1internal2:eth7"
+        - "asn1border2:eth2"
+    -
+      endpoints:
+        - "asn7border1:eth2"
+        - "asn3border1:eth1"
+    -
+      endpoints:
+        - "asn6border1:eth7"
+        - "asn4border1:eth1"
+    -
+      endpoints:
+        - "asn3border1:eth8"
+        - "asn5border1:eth1"
+    -
+      endpoints:
+        - "asn1border2:eth8"
+        - "Switch1:swp7"
+    -
+      endpoints:
+        - "asn2border1:eth7"
+        - "asn7border1:eth3"
+    -
+      endpoints:
+        - "asn1border1:eth8"
+        - "Switch1:swp1"
+    -
+      endpoints:
+        - "asn6cpe1:eth8"
+        - "asn6border1:eth1"
+    -
+      endpoints:
+        - "asn1internal1:eth8"
+        - "asn1border1:eth1"
+    -
+      endpoints:
+        - "asn1border3:eth8"
+        - "asn1internal1:eth1"
+    -
+      endpoints:
+        - "asn4border1:eth8"
+        - "asn7border1:eth1"
+    -
+      endpoints:
+        - "asn1border3:eth7"
+        - "asn1internal2:eth1"
+    -
+      endpoints:
+        - "asn6cpe1:eth1"
+        - "alpine-1:eth1"
+    -
+      endpoints:
+        - "host:gns3-1"
+        - "Switch1:swp8"
+    -
+      endpoints:
+        - "asn2border1:eth8"
+        - "asn3border1:eth3"
+    -
+      endpoints:
+        - "asn1internal2:eth8"
+        - "asn1border1:eth2"
+    -
+      endpoints:
+        - "asn6border1:eth8"
+        - "asn2border1:eth1"
+    -
+      endpoints:
+        - "asn5border1:eth8"
+        - "asn1border3:eth1"

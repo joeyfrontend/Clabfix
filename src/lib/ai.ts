@@ -1,0 +1,50 @@
+import type { MessageRole } from "../types";
+
+type ChatTurn = {
+  role: MessageRole;
+  parts: { text: string }[];
+};
+
+type AIResponse = {
+  text?: string;
+  error?: string;
+  retryAfterMs?: number | null;
+};
+
+async function postAi(body: unknown): Promise<string> {
+  const res = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json()) as AIResponse;
+  if (!res.ok || data.error) {
+    throw new Error(data.error || `AI request failed (${res.status})`);
+  }
+
+  return data.text || "No response.";
+}
+
+export async function analyzeTopology(yamlContent: string) {
+  return postAi({
+    action: "analyzeTopology",
+    yamlContent,
+  });
+}
+
+export async function troubleshootLogs(logs: string, yamlContent?: string) {
+  return postAi({
+    action: "troubleshootLogs",
+    logs,
+    yamlContent,
+  });
+}
+
+export async function chatWithAI(history: ChatTurn[], topologyYaml?: string) {
+  return postAi({
+    action: "chat",
+    history,
+    topologyYaml,
+  });
+}
