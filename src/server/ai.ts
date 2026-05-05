@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import type { MessageRole } from "../types";
-import { exec } from "child_process";
+import { spawn } from "child_process";
+import { globalLogStream } from "./events";
 
 const DEFAULT_MODEL = "llama-3.1-8b-instant";
 const MAX_HISTORY = 6;
@@ -120,12 +121,37 @@ function parseGroqError(error: unknown): ParsedError {
 
 function executeCommandLocally(command: string, cwd: string): Promise<string> {
   return new Promise((resolve) => {
-    exec(command, { cwd, shell: "true", timeout: 30_000 }, (error, stdout, stderr) => {
+    globalLogStream.log(JSON.stringify({ type: 'exec', text: `$ ${command}` }));
+    const child = spawn(command, { cwd, shell: true });
+    
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data) => {
+      const str = data.toString();
+      stdout += str;
+      globalLogStream.log(JSON.stringify({ type: 'stdout', text: str }));
+    });
+
+    child.stderr.on("data", (data) => {
+      const str = data.toString();
+      stderr += str;
+      globalLogStream.log(JSON.stringify({ type: 'stderr', text: str }));
+    });
+
+    child.on("close", (code) => {
       let output = stdout || "";
       if (stderr) output += `\nSTDERR:\n${stderr}`;
-      if (error && !output) output = error.message;
+      if (code !== 0 && !output) output = `Exited with code ${code}`;
       if (!output.trim()) output = "(Command returned no output)";
-      resolve(truncateText(output, 1500)); // Truncate to 1500 chars to save tokens
+      
+      globalLogStream.log(JSON.stringify({ type: 'done', text: `[AI Execution Finished] Code: ${code}` }));
+      resolve(truncateText(output, 1500));
+    });
+
+    child.on("error", (error) => {
+      globalLogStream.log(JSON.stringify({ type: 'error', text: `[AI Execution Error] ${error.message}` }));
+      resolve(error.message);
     });
   });
 }
