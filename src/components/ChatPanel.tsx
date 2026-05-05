@@ -42,21 +42,39 @@ function LiveTerminal() {
   if (logs.length === 0) return null;
 
   return (
-    <div className="bg-black/80 border-t border-b border-clab-border font-mono text-[10px] p-2 mt-4 max-h-[250px] overflow-y-auto shrink-0 shadow-inner" ref={scrollRef}>
-      <div className="text-clab-muted uppercase tracking-widest text-[9px] mb-2 font-bold border-b border-clab-border/50 pb-1 flex justify-between">
-        <span>Live Terminal Output</span>
+    <div className="bg-black/80 border-t border-b border-clab-border font-mono text-[10px] p-2 mt-4 flex flex-col shrink-0 shadow-inner h-64">
+      <div className="text-clab-muted uppercase tracking-widest text-[9px] mb-2 font-bold border-b border-clab-border/50 pb-1 flex justify-between shrink-0">
+        <span>Interactive Live Terminal</span>
         <span className="cursor-pointer hover:text-white" onClick={() => setLogs([])}>Clear</span>
       </div>
-      {logs.map((l) => (
-        <span key={l.id} className={cn(
-          "whitespace-pre-wrap break-all inline-block w-full",
-          l.type === 'exec' ? 'text-clab-accent font-bold mt-2' : '',
-          l.type === 'stderr' || l.type === 'error' ? 'text-clab-warning' : '',
-          l.type === 'done' ? 'text-clab-muted italic mt-1 mb-2' : 'text-gray-300'
-        )}>
-          {l.text}
-        </span>
-      ))}
+      <div className="flex-1 overflow-y-auto mb-2" ref={scrollRef}>
+        {logs.map((l) => (
+          <span key={l.id} className={cn(
+            "whitespace-pre-wrap break-all inline-block w-full",
+            l.type === 'exec' ? 'text-clab-accent font-bold mt-2' : '',
+            l.type === 'stderr' || l.type === 'error' ? 'text-clab-warning' : '',
+            l.type === 'done' ? 'text-clab-muted italic mt-1 mb-2' : 'text-gray-300'
+          )}>
+            {l.text}
+          </span>
+        ))}
+      </div>
+      <input
+        type="text"
+        className="w-full bg-black border border-clab-border/50 text-clab-accent outline-none px-2 py-1 placeholder:text-clab-muted shrink-0"
+        placeholder="Type a command and press Enter..."
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+            const cmd = e.currentTarget.value.trim();
+            e.currentTarget.value = '';
+            fetch('/api/exec', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ command: cmd }),
+            }).catch(() => {});
+          }
+        }}
+      />
     </div>
   );
 }
