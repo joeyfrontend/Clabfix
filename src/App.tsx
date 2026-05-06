@@ -145,11 +145,22 @@ export default function App() {
           b.code.trim().length > 0 && 
           !b.code.trim().includes('\n')
         );
+        
+        let cmd = null;
         if (cmdBlock) {
-          setSuggestedCommand(cmdBlock.code.trim());
+          cmd = cmdBlock.code.trim();
         } else {
-          setSuggestedCommand(null);
+          // Try to find an inline code block (single backticks) that looks like a command
+          const inlineMatch = response.match(/`([^`\n]+)`/);
+          if (inlineMatch) {
+            const potentialCmd = inlineMatch[1].trim();
+            // Basic heuristic to verify it's likely a command, not just highlighted text
+            if (/^(containerlab|clab|docker|ping|ip)\b/.test(potentialCmd)) {
+              cmd = potentialCmd;
+            }
+          }
         }
+        setSuggestedCommand(cmd);
       }
 
       setMessages(prev => [...prev, createMessage('model', response || "No response.", 'chat')]);
