@@ -1,3 +1,14 @@
+/**
+ * ── src/components/MetricsPanel.tsx ──────────────────────
+ * CHANGES (Problem 4):
+ *  1. FIXES counter is now clickable — expands to show a list of executed
+ *     commands pulled from the fixDetails prop (tool_call results from
+ *     message history).
+ *  2. Click toggles an expandable section below the summary grid.
+ */
+
+import { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { NodeInfo, LinkInfo } from '../types';
 
@@ -5,9 +16,12 @@ type MetricsPanelProps = {
   nodes: NodeInfo[];
   links: LinkInfo[];
   fixCount: number;
+  fixDetails: string[];
 };
 
-export default function MetricsPanel({ nodes, links, fixCount }: MetricsPanelProps) {
+export default function MetricsPanel({ nodes, links, fixCount, fixDetails }: MetricsPanelProps) {
+  const [showFixes, setShowFixes] = useState(false);
+
   const connectionCount = new Map<string, number>();
   links.forEach(l => {
     connectionCount.set(l.sourceNode, (connectionCount.get(l.sourceNode) || 0) + 1);
@@ -29,11 +43,40 @@ export default function MetricsPanel({ nodes, links, fixCount }: MetricsPanelPro
             <div className="text-lg font-bold text-clab-accent">{links.length}</div>
             <div className="text-[9px] text-clab-muted uppercase">Links</div>
           </div>
-          <div>
-            <div className="text-lg font-bold text-clab-warning">{fixCount}</div>
+          {/* Problem 4: Clickable fixes counter */}
+          <div
+            className={cn(
+              "cursor-pointer transition-colors rounded p-1 -m-1",
+              fixCount > 0 ? "hover:bg-clab-warning/10" : ""
+            )}
+            onClick={() => fixCount > 0 && setShowFixes(!showFixes)}
+            title={fixCount > 0 ? "Click to expand fix details" : "No fixes applied yet"}
+          >
+            <div className="text-lg font-bold text-clab-warning flex items-center justify-center gap-1">
+              {fixCount}
+              {fixCount > 0 && (
+                showFixes
+                  ? <ChevronUp size={12} className="text-clab-muted" />
+                  : <ChevronDown size={12} className="text-clab-muted" />
+              )}
+            </div>
             <div className="text-[9px] text-clab-muted uppercase">Fixes</div>
           </div>
         </div>
+
+        {/* Expandable fix details */}
+        {showFixes && fixDetails.length > 0 && (
+          <div className="mt-3 pt-2 border-t border-clab-border/50 space-y-1 max-h-40 overflow-y-auto scrollbar-thin">
+            <div className="text-[9px] uppercase font-bold text-clab-muted tracking-widest mb-1">
+              Executed Commands
+            </div>
+            {fixDetails.map((cmd, i) => (
+              <div key={i} className="text-[9px] font-mono text-clab-accent bg-black/40 px-2 py-1 rounded break-all">
+                {cmd}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Connection Density */}

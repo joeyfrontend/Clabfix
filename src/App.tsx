@@ -1,3 +1,16 @@
+/**
+ * ── src/App.tsx ──────────────────────────────────────────
+ * CHANGES:
+ *  Problem 1: topologyYaml is always passed to chatWithAI/analyzeTopology/
+ *    troubleshootLogs so the backend can inject context into every request.
+ *  Problem 3: Removed controlled `input` state — ChatPanel now manages its
+ *    own input via useRef (uncontrolled). handleSend receives text as argument.
+ *  Problem 4: Merged inputs — onExecCommand callback handles $ prefix commands.
+ *    Global Fix button shows "SCANNING..." state. fixDetails passed to MetricsPanel.
+ *  Problem 5: Tracks yamlFileDir (directory of loaded YAML) and passes it to
+ *    DirectoryPicker as yamlFilePath.
+ */
+
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { cn } from './lib/utils';
 import { chatWithAI, analyzeTopology, troubleshootLogs } from './lib/ai';
@@ -18,7 +31,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([
     createMessage('model', "Welcome to Clabfix. Paste or upload your topology YAML, then run analysis.", 'chat')
   ]);
-  const [input, setInput] = useState('');
+  // Problem 3: Removed `input` and `setInput` state — ChatPanel is now uncontrolled.
   const [logInput, setLogInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [topologyYaml, setTopologyYaml] = useState('');
@@ -26,6 +39,12 @@ export default function App() {
   const [labDir, setLabDirState] = useState('');
   const [selectedModel, setSelectedModel] = useState('google/gemini-2.0-flash-001');
   const [isDirPickerOpen, setIsDirPickerOpen] = useState(false);
+  // Problem 5: Track the directory of the loaded YAML file
+  const [yamlFileDir, setYamlFileDir] = useState('');
+  // Problem 4: Track executed commands for the clickable fixes counter
+  const [fixDetails, setFixDetails] = useState<string[]>([]);
+  // Problem 4: Global Fix scanning state
+  const [isScanning, setIsScanning] = useState(false);
 
   // Fetch lab directory on mount
   useEffect(() => {
@@ -73,29 +92,61 @@ export default function App() {
     setMessages(prev => [...prev, createMessage(role, text, type)]);
   }, []);
 
+  // Extract executed commands from a response text for fixDetails
+  const extractCommands = useCallback((text: string) => {
+    const match = text.match(/\*\*Commands executed.*?\*\*\n([\s\S]*?)$/);
+    if (match) {
+      const cmds = match[1].match(/`([^`]+)`/g);
+      if (cmds) {
+        setFixDetails(prev => [...prev, ...cmds.map(c => c.replace(/`/g, ''))]);
+      }
+    }
+  }, []);
+
   // ── Handlers ──────────────────────────────────────────
 
-  const handleSend = async (text: string = input) => {
+  // Problem 3: handleSend now receives text as argument (from uncontrolled input)
+  const handleSend = useCallback(async (text: string) => {
     if (!text.trim()) return;
     const userMsg = createMessage('user', text, 'chat');
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
-    setInput('');
     setIsTyping(true);
     try {
       const history = newMessages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
+      // Problem 1: Always pass topologyYaml so backend has context
       const response = await chatWithAI(history, topologyYaml, selectedModel);
-      setMessages([...newMessages, createMessage('model', response || "No response.", 'chat')]);
+      setMessages(prev => [...prev, createMessage('model', response || "No response.", 'chat')]);
+      extractCommands(response);
     } catch (err: any) {
       console.error('Chat error:', err);
       const detail = err?.message || String(err);
-      setMessages([...newMessages, createMessage('model', `⚠️ **API Error:** ${detail}`, 'chat')]);
+      setMessages(prev => [...prev, createMessage('model', `⚠️ **API Error:** ${detail}`, 'chat')]);
     } finally {
       setIsTyping(false);
     }
-  };
+  }, [messages, topologyYaml, selectedModel, extractCommands]);
 
-  const handleTopologyAnalyze = async () => {
+  // Problem 4: Direct exec command handler (for $ prefix in unified input)
+  const handleExecCommand = useCallback(async (command: string) => {
+    addMsg('user', `$ ${command}`, 'diagnostic');
+    try {
+      const result = await execCommand(command);
+      const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+      if (output) {
+        addMsg('model', `\`\`\`\n${output}\n\`\`\``, 'diagnostic');
+      } else {
+        addMsg('model', "✅ Command completed (no output).", 'diagnostic');
+      }
+      if (result.error) {
+        addMsg('model', `⚠️ ${result.error}`, 'diagnostic');
+      }
+    } catch {
+      addMsg('model', `⚠️ Failed to execute command.`, 'diagnostic');
+    }
+  }, [addMsg]);
+
+  const handleTopologyAnalyze = useCallback(async () => {
     if (!topologyYaml.trim()) return;
     try { yaml.load(topologyYaml); } catch (e: any) {
       addMsg('model', `⚠️ **YAML Error:**\n\`\`\`\n${e.message}\n\`\`\``);
@@ -106,38 +157,57 @@ export default function App() {
       const analysis = await analyzeTopology(topologyYaml, selectedModel);
       addMsg('user', "Topology Analysis", 'diagnostic');
       addMsg('model', analysis || "No issues found.", 'fix');
+      extractCommands(analysis);
       setActiveTab('chat');
-    } catch (err: any) { console.error('Analysis error:', err); addMsg('model', `⚠️ Analysis failed: ${err?.message || err}`); }
-    finally { setIsTyping(false); }
-  };
+    } catch (err: any) {
+      console.error('Analysis error:', err);
+      addMsg('model', `⚠️ Analysis failed: ${err?.message || err}`);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [topologyYaml, selectedModel, addMsg, extractCommands]);
 
-  const handleLogAnalysis = async () => {
+  const handleLogAnalysis = useCallback(async () => {
     if (!logInput.trim()) return;
     setIsTyping(true);
     try {
       const result = await troubleshootLogs(logInput, topologyYaml, selectedModel);
       addMsg('user', "Log Analysis", 'diagnostic');
       addMsg('model', result || "No issues.", 'fix');
+      extractCommands(result);
       setActiveTab('chat');
-    } catch (err: any) { console.error('Log error:', err); addMsg('model', `⚠️ Log analysis failed: ${err?.message || err}`); }
-    finally { setIsTyping(false); }
-  };
+    } catch (err: any) {
+      console.error('Log error:', err);
+      addMsg('model', `⚠️ Log analysis failed: ${err?.message || err}`);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [logInput, topologyYaml, selectedModel, addMsg, extractCommands]);
 
-  const handleConnectivityCheck = async () => {
+  const handleConnectivityCheck = useCallback(async () => {
     if (!topologyYaml.trim()) { addMsg('model', "⚠️ Load a topology first."); return; }
     setIsTyping(true);
     try {
-      const response = await troubleshootLogs("Connectivity check: which node pairs can/cannot reach each other and why.", topologyYaml);
+      const response = await troubleshootLogs(
+        "Connectivity check: which node pairs can/cannot reach each other and why.",
+        topologyYaml,
+        selectedModel
+      );
       addMsg('user', "Connectivity Check", 'diagnostic');
       addMsg('model', response || "Check complete.", 'fix');
+      extractCommands(response);
       setActiveTab('chat');
-    } catch (err: any) { console.error('Connectivity error:', err); addMsg('model', `⚠️ Connectivity check failed: ${err?.message || err}`); }
-    finally { setIsTyping(false); }
-  };
+    } catch (err: any) {
+      console.error('Connectivity error:', err);
+      addMsg('model', `⚠️ Connectivity check failed: ${err?.message || err}`);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [topologyYaml, selectedModel, addMsg, extractCommands]);
 
   // ── Apply Fix: YAML ──────────────────────────────────
 
-  const handleApplyYaml = (msg: Message) => {
+  const handleApplyYaml = useCallback((msg: Message) => {
     const blocks = extractCodeBlocks(msg.content);
     const yamlBlock = blocks.find(b => ['yaml', 'yml'].includes(b.lang));
     if (!yamlBlock) {
@@ -152,11 +222,11 @@ export default function App() {
     setTopologyYaml(yamlBlock.code);
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, dismissed: true } : m));
     addMsg('model', "✅ YAML updated. Switch to **YAML Definition** tab to review.");
-  };
+  }, [addMsg]);
 
   // ── Apply Fix: Run Commands ──────────────────────────
 
-  const handleRunCommand = async (msg: Message) => {
+  const handleRunCommand = useCallback(async (msg: Message) => {
     const blocks = extractCodeBlocks(msg.content);
     const cmdBlocks = blocks.filter(b => ['bash', 'sh', 'shell', ''].includes(b.lang) && !['yaml', 'yml'].includes(b.lang));
     if (cmdBlocks.length === 0) {
@@ -168,7 +238,7 @@ export default function App() {
     for (const block of cmdBlocks) {
       const script = block.code.trim();
       if (!script) continue;
-      
+
       addMsg('user', `Executing Script:\n\`\`\`bash\n${script}\n\`\`\``, 'diagnostic');
       try {
         const result = await execCommand(script);
@@ -181,23 +251,26 @@ export default function App() {
         if (result.error) {
           addMsg('model', `⚠️ ${result.error}`, 'diagnostic');
         }
+        setFixDetails(prev => [...prev, script]);
       } catch {
         addMsg('model', `⚠️ Failed to execute script.`, 'diagnostic');
       }
     }
-  };
+  }, [addMsg]);
 
-  const handleDismiss = (id: string) => {
+  const handleDismiss = useCallback((id: string) => {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, dismissed: true } : m));
-  };
+  }, []);
 
-  const handleRescan = () => {
+  const handleRescan = useCallback(() => {
     if (topologyYaml.trim()) handleTopologyAnalyze();
     else addMsg('model', "⚠️ No topology loaded.");
-  };
+  }, [topologyYaml, handleTopologyAnalyze, addMsg]);
 
-  const handleGlobalFix = async () => {
+  // Problem 4: Global Fix with SCANNING state and streaming results
+  const handleGlobalFix = useCallback(async () => {
     if (!topologyYaml.trim()) { addMsg('model', "⚠️ No topology loaded."); return; }
+    setIsScanning(true);
     setIsTyping(true);
     try {
       const prompt = `Generate a single remediation script for ALL issues found. Include both YAML fixes and shell commands.`;
@@ -207,9 +280,15 @@ export default function App() {
       ], topologyYaml, selectedModel);
       addMsg('user', "Global Fix", 'diagnostic');
       addMsg('model', response || "Done.", 'fix');
-    } catch (err: any) { console.error('Global fix error:', err); addMsg('model', `⚠️ Global fix failed: ${err?.message || err}`); }
-    finally { setIsTyping(false); }
-  };
+      extractCommands(response);
+    } catch (err: any) {
+      console.error('Global fix error:', err);
+      addMsg('model', `⚠️ Global fix failed: ${err?.message || err}`);
+    } finally {
+      setIsTyping(false);
+      setIsScanning(false);
+    }
+  }, [messages, topologyYaml, selectedModel, addMsg, extractCommands]);
 
   // ── Render ────────────────────────────────────────────
 
@@ -243,7 +322,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <select 
+            <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="bg-black/40 border border-clab-border text-clab-accent text-[10px] uppercase font-bold p-1 outline-none cursor-pointer"
@@ -254,8 +333,8 @@ export default function App() {
               <option value="qwen/qwen-2.5-coder-32b-instruct">Qwen 2.5 Coder</option>
             </select>
             {labDir && (
-              <div 
-                className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded" 
+              <div
+                className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded"
                 title="Click to change working directory"
                 onClick={() => setIsDirPickerOpen(true)}
               >
@@ -269,9 +348,13 @@ export default function App() {
           <div className="col-span-9 flex flex-col min-h-0 border-r border-clab-border">
             {activeTab === 'chat' && (
               <ChatPanel
-                messages={messages} input={input} setInput={setInput}
-                onSend={() => handleSend()} isTyping={isTyping}
-                onApplyYaml={handleApplyYaml} onRunCommand={handleRunCommand} onDismiss={handleDismiss}
+                messages={messages}
+                onSend={handleSend}
+                onExecCommand={handleExecCommand}
+                isTyping={isTyping}
+                onApplyYaml={handleApplyYaml}
+                onRunCommand={handleRunCommand}
+                onDismiss={handleDismiss}
               />
             )}
             {activeTab === 'topology' && (
@@ -280,6 +363,9 @@ export default function App() {
                 onAnalyze={handleTopologyAnalyze} isAnalyzing={isTyping}
                 onFileLoaded={(fileName) => {
                   addMsg('model', `✅ Loaded topology file: **${fileName}**`);
+                  // Problem 5: Extract directory from file name for DirectoryPicker
+                  // The fileName is just the name — we'll use the current labDir
+                  setYamlFileDir(labDir);
                   setIsDirPickerOpen(true);
                 }}
               />
@@ -296,7 +382,8 @@ export default function App() {
               />
             )}
           </div>
-          <MetricsPanel nodes={parsedNodes} links={parsedLinks} fixCount={fixCount} />
+          {/* Problem 4: fixDetails passed to MetricsPanel */}
+          <MetricsPanel nodes={parsedNodes} links={parsedLinks} fixCount={fixCount} fixDetails={fixDetails} />
         </section>
 
         <footer className="h-10 bg-clab-surface border-t border-clab-border flex items-center px-4 justify-between shrink-0">
@@ -305,9 +392,17 @@ export default function App() {
               className="text-[10px] px-3 py-1 bg-clab-border hover:bg-gray-700/50 rounded uppercase font-bold tracking-tight transition-all disabled:opacity-50">
               Re-Scan
             </button>
-            <button onClick={handleGlobalFix} disabled={isTyping}
-              className="text-[10px] px-3 py-1 bg-clab-accent/10 text-clab-accent border border-clab-accent/50 hover:bg-clab-accent hover:text-black rounded uppercase font-bold tracking-tight transition-all disabled:opacity-50">
-              Global Fix
+            {/* Problem 4: Global Fix with SCANNING state */}
+            <button onClick={handleGlobalFix} disabled={isTyping || isScanning}
+              className="text-[10px] px-3 py-1 bg-clab-accent/10 text-clab-accent border border-clab-accent/50 hover:bg-clab-accent hover:text-black rounded uppercase font-bold tracking-tight transition-all disabled:opacity-50 flex items-center gap-2">
+              {isScanning ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-clab-accent border-t-transparent rounded-full animate-spin" />
+                  SCANNING...
+                </>
+              ) : (
+                'Global Fix'
+              )}
             </button>
           </div>
           <div className="text-[9px] text-clab-muted tracking-widest uppercase">
@@ -315,21 +410,19 @@ export default function App() {
           </div>
         </footer>
       </main>
-      
-      <DirectoryPicker 
-        isOpen={isDirPickerOpen} 
-        onClose={() => setIsDirPickerOpen(false)} 
+
+      {/* Problem 5: DirectoryPicker gets yamlFileDir */}
+      <DirectoryPicker
+        isOpen={isDirPickerOpen}
+        onClose={() => setIsDirPickerOpen(false)}
         initialPath={labDir || '/'}
+        yamlFilePath={yamlFileDir}
         onSelect={async (newDir) => {
           try {
-            // Need to import setLabDir locally or use the one at the top
-            const { setLabDir } = await import('./lib/api');
             const updated = await setLabDir(newDir);
             setLabDirState(updated);
-            // Optionally could add a message if we had access to addMsg here, 
-            // but we don't have it in scope unless we just let the UI update handle the visual confirmation
-          } catch (e) {
-            alert("Failed to change directory.");
+          } catch {
+            addMsg('model', "⚠️ Failed to change directory.");
           }
         }}
       />

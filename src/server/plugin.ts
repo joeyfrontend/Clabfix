@@ -1,7 +1,20 @@
+/**
+ * ── src/server/plugin.ts ────────────────────────────────
+ * CHANGES (Problems 2 & 5):
+ *  1. /api/exec: spawn uses ['bash', '-c', command] with { cwd } as option
+ *     object — never interpolated into shell string. Handles paths with spaces.
+ *  2. /api/exec: stdout/stderr streamed to SSE immediately (no buffering).
+ *  3. /api/exec: proper error handling — all errors return JSON, never crash.
+ *  4. /api/cwd POST: auto-runs health check command after CWD change.
+ *  5. /api/fs: accepts optional initialPath param for directory picker.
+ *  6. /api/fs: falls back to user home dir when path is "/" or invalid.
+ */
+
 import type { Plugin, Connect } from "vite";
-import { exec, spawn } from "child_process";
+import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { globalLogStream } from "./events";
 import { AIRequestError, createAIService, type AIRequest } from "./ai";
 
@@ -32,18 +45,40 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
   return {
     name: "clabfix-api",
     configureServer(server) {
+      // ── /api/fs — File system browser for DirectoryPicker ──
       server.middlewares.use("/api/fs", (req, res, next) => {
         if (req.method === "GET") {
           const url = new URL(req.url || "/", `http://${req.headers.host}`);
-          const dirPath = url.searchParams.get("path") || process.cwd();
-          
+          let dirPath = url.searchParams.get("path") || process.cwd();
+
+          // Problem 5: If path is "/" or empty, fall back to user home dir
+          if (dirPath === "/" || !dirPath) {
+            dirPath = os.homedir();
+          }
+
+          // Validate the path exists; if not, fall back to home
+          try {
+            if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+              dirPath = os.homedir();
+            }
+          } catch {
+            dirPath = os.homedir();
+          }
+
           try {
             const items = fs.readdirSync(dirPath, { withFileTypes: true });
             const folders = items
               .filter(item => item.isDirectory() && !item.name.startsWith('.'))
-              .map(item => ({ name: item.name, path: path.join(dirPath, item.name).replace(/\\/g, '/') }));
+              .map(item => ({
+                name: item.name,
+                path: path.join(dirPath, item.name).replace(/\\/g, '/'),
+              }));
             res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ folders, current: dirPath.replace(/\\/g, '/') }));
+            res.end(JSON.stringify({
+              folders,
+              current: dirPath.replace(/\\/g, '/'),
+              home: os.homedir().replace(/\\/g, '/'),
+            }));
           } catch (err: any) {
             res.statusCode = 400;
             res.setHeader("Content-Type", "application/json");
@@ -54,6 +89,7 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
         next();
       });
 
+      // ── /api/ai — AI requests ──
       server.middlewares.use("/api/ai", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;
@@ -90,6 +126,7 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
           });
       });
 
+      // ── /api/cwd — Get/set working directory ──
       server.middlewares.use("/api/cwd", (req, res) => {
         if (req.method === "GET") {
           res.setHeader("Content-Type", "application/json");
@@ -103,10 +140,27 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
               labDir = cwd;
               res.setHeader("Content-Type", "application/json");
               res.end(JSON.stringify({ cwd: labDir }));
+
+              // Problem 2: Auto-run health check after CWD change so
+              // the terminal shows signs of life immediately.
+              const healthCmd = `echo "Terminal ready at: $(pwd)"`;
+              const child = spawn("bash", ["-c", healthCmd], { cwd: labDir });
+              child.stdout.on("data", (data) => {
+                globalLogStream.log(
+                  JSON.stringify({ type: "stdout", text: data.toString() })
+                );
+              });
+              child.on("close", () => {
+                globalLogStream.log(
+                  JSON.stringify({ type: "done", text: "[CWD changed]" })
+                );
+              });
+              child.on("error", () => {}); // Swallow — CWD was already set
             })
             .catch(() => {
               res.statusCode = 400;
-              res.end("Bad request");
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ error: "Bad request" }));
             });
           return;
         }
@@ -115,13 +169,13 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
         res.end();
       });
 
-      // Inside configureServer...
+      // ── /api/stream — SSE event stream ──
       server.middlewares.use("/api/stream", (req, res) => {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           "Connection": "keep-alive",
-          "X-Accel-Buffering": "no"
+          "X-Accel-Buffering": "no",
         });
 
         const onLog = (data: string) => {
@@ -134,10 +188,15 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
         });
       });
 
+      // ── /api/exec — Execute commands from terminal/frontend ──
+      // Problem 2 fix: spawn with ['bash', '-c', command] and { cwd } as
+      // option — safe for paths containing spaces. All errors caught and
+      // returned as JSON, never crash the SSE connection.
       server.middlewares.use("/api/exec", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;
-          res.end();
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Method not allowed" }));
           return;
         }
 
@@ -145,29 +204,40 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
           .then(({ command }) => {
             if (!command || typeof command !== "string") {
               res.statusCode = 400;
-              res.end(JSON.stringify({ error: "No command provided" }));
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({
+                stdout: "",
+                stderr: "",
+                exitCode: 1,
+                error: "No command provided",
+              }));
               return;
             }
 
-            globalLogStream.log(JSON.stringify({ type: 'exec', text: `$ ${command}` }));
-            
-            const child = spawn(command, { cwd: labDir, shell: true });
+            globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${command}` }));
+
+            // spawn with bash -c and cwd as option — handles spaces in paths
+            const child = spawn("bash", ["-c", command], { cwd: labDir });
             let stdout = "";
             let stderr = "";
 
             child.stdout.on("data", (data) => {
               const str = data.toString();
               stdout += str;
-              globalLogStream.log(JSON.stringify({ type: 'stdout', text: str }));
+              // Stream immediately to SSE
+              globalLogStream.log(JSON.stringify({ type: "stdout", text: str }));
             });
 
             child.stderr.on("data", (data) => {
               const str = data.toString();
               stderr += str;
-              globalLogStream.log(JSON.stringify({ type: 'stderr', text: str }));
+              globalLogStream.log(JSON.stringify({ type: "stderr", text: str }));
             });
 
             child.on("close", (code) => {
+              globalLogStream.log(
+                JSON.stringify({ type: "done", text: `[exit ${code}]` })
+              );
               res.setHeader("Content-Type", "application/json");
               res.end(
                 JSON.stringify({
@@ -180,9 +250,11 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
             });
 
             child.on("error", (error) => {
-               globalLogStream.log(JSON.stringify({ type: 'error', text: `Error: ${error.message}` }));
-               res.setHeader("Content-Type", "application/json");
-               res.end(
+              globalLogStream.log(
+                JSON.stringify({ type: "error", text: `Error: ${error.message}` })
+              );
+              res.setHeader("Content-Type", "application/json");
+              res.end(
                 JSON.stringify({
                   stdout: stdout.trim(),
                   stderr: stderr.trim(),
@@ -192,9 +264,15 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
               );
             });
           })
-          .catch(() => {
+          .catch((err) => {
             res.statusCode = 400;
-            res.end(JSON.stringify({ error: "Invalid request body" }));
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              stdout: "",
+              stderr: "",
+              exitCode: 1,
+              error: err?.message || "Invalid request body",
+            }));
           });
       });
     },
