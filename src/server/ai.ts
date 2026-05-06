@@ -69,6 +69,10 @@ You are NOT a chatbot. You are an autonomous agent. On ANY user message, IMMEDIA
 - After modifying topology, offer to run \`containerlab deploy --reconfigure -t <file>\`.
 - Actions: add_node, remove_node, add_link, remove_link.
 
+## IP ASSIGNMENT & CONFIGURATION
+- To assign IP addresses to datapath interfaces (e.g., eth1, eth2) or modify routes, USE \`execute_command\` with standard Linux networking commands via docker exec. For example: \`docker exec <node> ip addr add <ip>/<mask> dev <iface>\`.
+- You DO NOT need a special tool for this. Shell execution is the correct method for runtime IP assignment.
+
 ## OUTPUT FORMAT
 - Concise. Bullet points. No filler.
 - Errors: **Probable Cause** + **Exact Fix**.
@@ -216,6 +220,21 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
 
     let stdout = "", stderr = "";
     let killed = false;
+    let resolved = false;
+
+    const finalize = (code: number | null) => {
+      if (resolved) return;
+      resolved = true;
+      activeProcesses.delete(child);
+      clearTimeout(timeout);
+      let out = stdout || "";
+      if (stderr) out += `\nSTDERR:\n${stderr}`;
+      if (killed) out += "\n[Command killed after 5m timeout]";
+      if (code !== 0 && !out) out = `Exited with code ${code}`;
+      if (!out.trim()) out = "(No output)";
+      globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` }));
+      resolve(truncateText(stripAnsi(out), 3000));
+    };
 
     // 5-minute timeout per command — prevents queue from getting stuck on hanging tasks
     const timeout = setTimeout(() => {
@@ -224,6 +243,7 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
         try { process.kill(-child.pid, "SIGKILL"); } catch (e) { child.kill("SIGKILL"); }
       }
       globalLogStream.log(JSON.stringify({ type: "stderr", text: "[Killed: 5m timeout exceeded]\n" }));
+      finalize(137);
     }, 300_000);
 
     child.stdout.on("data", (d) => {
@@ -236,18 +256,10 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
       stderr += raw;
       globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(raw) }));
     });
-    child.on("close", (code) => {
-      activeProcesses.delete(child);
-      clearTimeout(timeout);
-      let out = stdout || "";
-      if (stderr) out += `\nSTDERR:\n${stderr}`;
-      if (killed) out += "\n[Command killed after 5m timeout]";
-      if (code !== 0 && !out) out = `Exited with code ${code}`;
-      if (!out.trim()) out = "(No output)";
-      globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` }));
-      resolve(truncateText(stripAnsi(out), 3000));
-    });
+    child.on("close", (code) => finalize(code));
     child.on("error", (e) => {
+      if (resolved) return;
+      resolved = true;
       activeProcesses.delete(child);
       clearTimeout(timeout);
       globalLogStream.log(JSON.stringify({ type: "error", text: `[Error] ${e.message}` }));
