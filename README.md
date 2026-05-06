@@ -1,14 +1,15 @@
 # Clabfix
 
-AI-powered troubleshooting agent for [Containerlab](https://containerlab.dev/) network topologies and diagnostic logs.
+AI-powered autonomous troubleshooting agent for [Containerlab](https://containerlab.dev/) network topologies and diagnostic logs.
 
 ## Features
 
 - **Topology Analysis** — Paste your `.clab.yml` and get instant AI-driven lint + architectural review
-- **Log Troubleshooting** — Feed in `docker logs`, `dmesg`, or `clab deploy` output for error detection
-- **Connectivity Checks** — Full-mesh ping sweep simulation and gateway reachability analysis
-- **Automated Remediation** — Get exact fix commands with explanations; copy to clipboard in one click
-- **Dynamic Node Sidebar** — Parses your YAML in real-time to show active nodes and topology map
+- **Automated Remediation** — Agent automatically generates exact fix scripts and commands.
+- **Live Interactive Terminal** — Run `containerlab deploy` or bash commands directly from the UI and watch live streaming outputs.
+- **Visual Directory Picker** — IDE-style native folder selection to automatically set your lab's working directory.
+- **Dynamic Model Selection** — Switch between powerful models (Gemini 2.0 Flash, Llama 3.3 70B, etc.) on the fly via the OpenRouter integration.
+- **Dynamic Node Sidebar** — Parses your YAML in real-time to show active nodes and a live topology map.
 
 ## Tech Stack
 
@@ -16,10 +17,10 @@ AI-powered troubleshooting agent for [Containerlab](https://containerlab.dev/) n
 |---|---|
 | Frontend | React 19, TypeScript |
 | Styling | Tailwind CSS v4 |
-| AI Backend | Local Vite API proxy + Groq API (`groq-sdk`) |
+| AI Backend | Local Node.js Vite Proxy + OpenRouter API (native `fetch`) |
 | Build | Vite 6 |
 | Animations | Motion (Framer Motion) |
-| Markdown | react-markdown + remark-gfm |
+| System Access| `child_process` execution + `fs` filesystem browsing |
 
 ## Getting Started
 
@@ -28,13 +29,10 @@ AI-powered troubleshooting agent for [Containerlab](https://containerlab.dev/) n
 npm install
 
 # Copy .env.example to .env (Windows: copy, Mac/Linux: cp)
-copy .env.example .env
+cp .env.example .env
 
-# Add your Groq API key to .env (Get it from https://console.groq.com/keys)
-# GROQ_API_KEY="your-key-here"
-
-# Optional: change the model if you want to test a different one
-# GROQ_MODEL="llama-3.3-70b-versatile"
+# Add your OpenRouter API key to .env (Get it from https://openrouter.ai/)
+# OPENROUTER_API_KEY="sk-or-v1-..."
 
 # Start dev server
 npm run dev
@@ -46,30 +44,35 @@ The app will be available at `http://localhost:3000`.
 
 ```
 src/
-├── App.tsx                  # Main orchestrator
+├── App.tsx                  # Main orchestrator & routing
 ├── types.ts                 # Shared TypeScript types
 ├── main.tsx                 # React entry point
-├── index.css                # Global styles & theme tokens
 ├── lib/
-│   ├── ai.ts                # Groq AI service layer
-│   └── utils.ts             # Utility functions (cn)
+│   ├── ai.ts                # Frontend AI request wrapper
+│   ├── api.ts               # Terminal & FS commands bridging
+│   └── utils.ts             # Utility functions
+├── server/
+│   ├── plugin.ts            # Vite backend middleware (Terminal, AI, FS)
+│   ├── ai.ts                # OpenRouter AI core logic & Tool Calling
+│   └── events.ts            # Server-Sent Events stream manager
 └── components/
     ├── Sidebar.tsx           # Left nav with dynamic node list
-    ├── ChatPanel.tsx         # Diagnostic chat with message list
-    ├── MessageBubble.tsx     # Individual message with markdown rendering
+    ├── ChatPanel.tsx         # AI chat & Interactive Terminal UI
+    ├── MessageBubble.tsx     # Message rendering
     ├── TopologyEditor.tsx    # YAML topology editor
-    ├── LogAnalyzer.tsx       # Log paste & analysis
-    ├── ConnectivityCheck.tsx  # Connectivity sweep module
+    ├── DirectoryPicker.tsx   # Native file system browser modal
     └── MetricsPanel.tsx      # Right panel with metrics & topo map
 ```
 
+## AI Model Compatibility
+
+The backend uses **Tool Calling** (Function Calling) to automatically execute terminal commands. If you are using a free OpenRouter tier, ensure you select a model that natively supports tools.
+- **Supported / Recommended:** `google/gemini-2.0-flash-001`, `meta-llama/llama-3.3-70b-instruct`
+- **Unsupported (Free Tier):** `qwen/qwen-2.5-coder-32b-instruct` (Will drop connection if asked to execute commands).
+
 ## Security Note
 
-Groq API calls are proxied through the local Vite server, so the API key is never exposed in the browser bundle. If you previously served a build that embedded the key client-side, rotate that key before continuing.
-
-## Rate Limiting
-
-The AI proxy serializes Groq requests, honors retry windows returned by the API, and caches identical requests briefly so repeated clicks do not burn extra quota. If you still see long cooldowns after this change, the current key is likely exhausted.
+OpenRouter API calls are proxied securely through the local Vite Node.js server. The API key is strictly maintained backend-side and never exposed in the browser bundle.
 
 ## License
 
