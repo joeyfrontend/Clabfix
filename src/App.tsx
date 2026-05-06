@@ -154,9 +154,18 @@ export default function App() {
           const inlineMatch = response.match(/`([^`\n]+)`/);
           if (inlineMatch) {
             const potentialCmd = inlineMatch[1].trim();
-            // Basic heuristic to verify it's likely a command, not just highlighted text
             if (/^(containerlab|clab|docker|ping|ip)\b/.test(potentialCmd)) {
               cmd = potentialCmd;
+            }
+          }
+          
+          // Final fallback: just look for ANY line in the response that starts with a known command
+          if (!cmd) {
+            const lines = response.split('\n');
+            const cmdLine = lines.find(l => /^(containerlab|clab|docker|ping|ip)\b/.test(l.trim()));
+            if (cmdLine) {
+              // Strip markdown formatting like list bullets or bold if the AI mixed them up
+              cmd = cmdLine.replace(/^[-*0-9.]+\s*/, '').replace(/\*\*/g, '').trim();
             }
           }
         }
