@@ -137,7 +137,19 @@ export default function App() {
         setSuggestedCommand(suggestedMatch[1].trim());
         response = response.replace(/\[SUGGESTED_COMMAND\]\s*(.+)/g, '').trim();
       } else {
-        setSuggestedCommand(null);
+        // Fallback: look for a single-line command in a markdown code block (bash/sh/no-lang)
+        const blocks = extractCodeBlocks(response);
+        const cmdBlock = blocks.find(b => 
+          ['bash', 'sh', 'shell', ''].includes(b.lang) && 
+          !['yaml', 'yml'].includes(b.lang) && 
+          b.code.trim().length > 0 && 
+          !b.code.trim().includes('\n')
+        );
+        if (cmdBlock) {
+          setSuggestedCommand(cmdBlock.code.trim());
+        } else {
+          setSuggestedCommand(null);
+        }
       }
 
       setMessages(prev => [...prev, createMessage('model', response || "No response.", 'chat')]);
