@@ -23,6 +23,7 @@ export default function App() {
   const [topologyYaml, setTopologyYaml] = useState('');
   const [activeTab, setActiveTab] = useState<TabType>('chat');
   const [labDir, setLabDirState] = useState('');
+  const [selectedModel, setSelectedModel] = useState('google/gemini-2.0-flash-001');
 
   // Fetch lab directory on mount
   useEffect(() => {
@@ -81,7 +82,7 @@ export default function App() {
     setIsTyping(true);
     try {
       const history = newMessages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
-      const response = await chatWithAI(history, topologyYaml);
+      const response = await chatWithAI(history, topologyYaml, selectedModel);
       setMessages([...newMessages, createMessage('model', response || "No response.", 'chat')]);
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -100,7 +101,7 @@ export default function App() {
     }
     setIsTyping(true);
     try {
-      const analysis = await analyzeTopology(topologyYaml);
+      const analysis = await analyzeTopology(topologyYaml, selectedModel);
       addMsg('user', "Topology Analysis", 'diagnostic');
       addMsg('model', analysis || "No issues found.", 'fix');
       setActiveTab('chat');
@@ -112,7 +113,7 @@ export default function App() {
     if (!logInput.trim()) return;
     setIsTyping(true);
     try {
-      const result = await troubleshootLogs(logInput, topologyYaml);
+      const result = await troubleshootLogs(logInput, topologyYaml, selectedModel);
       addMsg('user', "Log Analysis", 'diagnostic');
       addMsg('model', result || "No issues.", 'fix');
       setActiveTab('chat');
@@ -201,7 +202,7 @@ export default function App() {
       const response = await chatWithAI([
         ...messages.map(m => ({ role: m.role, parts: [{ text: m.content }] })),
         { role: 'user' as const, parts: [{ text: prompt }] }
-      ], topologyYaml);
+      ], topologyYaml, selectedModel);
       addMsg('user', "Global Fix", 'diagnostic');
       addMsg('model', response || "Done.", 'fix');
     } catch (err: any) { console.error('Global fix error:', err); addMsg('model', `⚠️ Global fix failed: ${err?.message || err}`); }
@@ -239,26 +240,38 @@ export default function App() {
               </span>
             </div>
           </div>
-          {labDir && (
-            <div 
-              className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded" 
-              title="Click to change working directory"
-              onClick={async () => {
-                const newDir = prompt("Enter the absolute path to your Containerlab working directory:", labDir);
-                if (newDir && newDir !== labDir) {
-                  try {
-                    // We need to import setLabDir, so I'll assume it's imported at the top
-                    const updated = await import('./lib/api').then(m => m.setLabDir(newDir));
-                    setLabDirState(updated);
-                  } catch (e) {
-                    alert("Failed to change directory. Does it exist?");
-                  }
-                }
-              }}
+          <div className="flex items-center gap-4">
+            <select 
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="bg-black/40 border border-clab-border text-clab-accent text-[10px] uppercase font-bold p-1 outline-none cursor-pointer"
             >
-              CWD: {labDir}
-            </div>
-          )}
+              <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+              <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+              <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+              <option value="qwen/qwen-2.5-coder-32b-instruct">Qwen 2.5 Coder</option>
+            </select>
+            {labDir && (
+              <div 
+                className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded" 
+                title="Click to change working directory"
+                onClick={async () => {
+                  const newDir = prompt("Enter the absolute path to your Containerlab working directory:", labDir);
+                  if (newDir && newDir !== labDir) {
+                    try {
+                      // We need to import setLabDir, so I'll assume it's imported at the top
+                      const updated = await import('./lib/api').then(m => m.setLabDir(newDir));
+                      setLabDirState(updated);
+                    } catch (e) {
+                      alert("Failed to change directory. Does it exist?");
+                    }
+                  }
+                }}
+              >
+                CWD: {labDir}
+              </div>
+            )}
+          </div>
         </header>
 
         <section className="flex-1 min-h-0 overflow-hidden grid grid-cols-12">

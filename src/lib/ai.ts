@@ -26,25 +26,28 @@ async function postAi(body: unknown): Promise<string> {
   return data.text || "No response.";
 }
 
-export async function analyzeTopology(yamlContent: string) {
+export async function analyzeTopology(yamlContent: string, model?: string) {
   return postAi({
     action: "analyzeTopology",
     yamlContent,
+    model,
   });
 }
 
-export async function troubleshootLogs(logs: string, yamlContent?: string) {
+export async function troubleshootLogs(logs: string, yamlContent?: string, model?: string) {
   return postAi({
     action: "troubleshootLogs",
     logs,
     yamlContent,
+    model,
   });
 }
 
-export async function chatWithAI(history: ChatTurn[], topologyYaml?: string) {
+export async function chatWithAI(history: ChatTurn[], topologyYaml?: string, model?: string) {
   return postAi({
     action: "chat",
     history,
     topologyYaml,
+    model,
   });
 }

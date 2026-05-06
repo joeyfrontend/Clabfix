@@ -16,9 +16,9 @@ type ChatTurn = {
 };
 
 export type AIRequest =
-  | { action: "analyzeTopology"; yamlContent: string }
-  | { action: "troubleshootLogs"; logs: string; yamlContent?: string }
-  | { action: "chat"; history: ChatTurn[]; topologyYaml?: string };
+  | { action: "analyzeTopology"; yamlContent: string; model?: string }
+  | { action: "troubleshootLogs"; logs: string; yamlContent?: string; model?: string }
+  | { action: "chat"; history: ChatTurn[]; topologyYaml?: string; model?: string };
 
 type ParsedError = {
   message: string;
@@ -252,6 +252,7 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
     let finalContent = "";
     const cwd = options.getLabDir ? options.getLabDir() : process.cwd();
     const apiKey = getApiKey();
+    const activeModel = request.model || model;
 
     const tools = [
       {
@@ -280,7 +281,7 @@ export function createAIService(options: { apiKey?: string; model?: string; getL
         lastRequestAt = Date.now();
 
         try {
-          currentResponse = await callOpenRouter(apiKey, model, messages, tools);
+          currentResponse = await callOpenRouter(apiKey, activeModel, messages, tools);
           cooldownUntil = 0;
           success = true;
           break;
