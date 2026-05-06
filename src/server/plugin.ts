@@ -182,16 +182,45 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
           "X-Accel-Buffering": "no",
         });
 
-        // data is already a JSON string from globalLogStream.log(JSON.stringify({...}))
-        // Writing it directly — no second JSON.stringify — so client gets a proper object.
+        // Keepalive ping every 15s — prevents browser/proxy from killing the connection
+        const keepalive = setInterval(() => {
+          res.write(":keepalive\n\n");
+        }, 15_000);
+
         const onLog = (data: string) => {
           res.write(`data: ${data}\n\n`);
         };
 
         globalLogStream.on("log", onLog);
         req.on("close", () => {
+          clearInterval(keepalive);
           globalLogStream.off("log", onLog);
         });
+      });
+
+      // ── /api/topology — Read .clab.yml from CWD ──
+      server.middlewares.use("/api/topology", (req, res) => {
+        if (req.method !== "GET") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        try {
+          const files = fs.readdirSync(labDir).filter((f: string) => f.endsWith(".clab.yml") || f.endsWith(".clab.yaml"));
+          if (files.length === 0) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ found: false, yaml: "", filename: "" }));
+            return;
+          }
+          const filename = files[0];
+          const content = fs.readFileSync(path.join(labDir, filename), "utf8");
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ found: true, yaml: content, filename }));
+        } catch (err: any) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
       });
 
       // ── /api/confirm — Approve/deny destructive commands ──

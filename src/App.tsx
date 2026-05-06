@@ -14,7 +14,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { cn } from './lib/utils';
 import { chatWithAI, analyzeTopology, troubleshootLogs } from './lib/ai';
-import { execCommand, extractCodeBlocks, getLabDir, setLabDir } from './lib/api';
+import { execCommand, extractCodeBlocks, getLabDir, setLabDir, loadTopologyFromDisk } from './lib/api';
 import yaml from 'js-yaml';
 import type { Message, TabType, NodeInfo, LinkInfo } from './types';
 import { createMessage } from './types';
@@ -46,9 +46,24 @@ export default function App() {
   // Problem 4: Global Fix scanning state
   const [isScanning, setIsScanning] = useState(false);
 
-  // Fetch lab directory on mount
+  // Fetch lab directory on mount and auto-load topology from disk
   useEffect(() => {
-    getLabDir().then(setLabDirState).catch(() => {});
+    getLabDir().then((dir) => {
+      setLabDirState(dir);
+      // Auto-load topology from CWD — no manual upload needed
+      loadTopologyFromDisk().then(({ found, yaml: content, filename }) => {
+        if (found && content) {
+          setTopologyYaml(content);
+          addMsg('model', `✅ Auto-loaded topology: **${filename}**`);
+        }
+      });
+    }).catch(() => {});
+  }, []);
+
+  // Reload topology from disk (called after CWD change & AI responses)
+  const reloadTopology = useCallback(async () => {
+    const { found, yaml: content } = await loadTopologyFromDisk();
+    if (found && content) setTopologyYaml(content);
   }, []);
 
   // Parse topology YAML
@@ -118,6 +133,8 @@ export default function App() {
       const response = await chatWithAI(history, topologyYaml, selectedModel);
       setMessages(prev => [...prev, createMessage('model', response || "No response.", 'chat')]);
       extractCommands(response);
+      // Reload topology in case modify_topology changed the YAML
+      reloadTopology();
     } catch (err: any) {
       console.error('Chat error:', err);
       const detail = err?.message || String(err);
@@ -125,7 +142,7 @@ export default function App() {
     } finally {
       setIsTyping(false);
     }
-  }, [messages, topologyYaml, selectedModel, extractCommands]);
+  }, [messages, topologyYaml, selectedModel, extractCommands, reloadTopology]);
 
   // Problem 4: Direct exec command handler (for $ prefix in unified input)
   const handleExecCommand = useCallback(async (command: string) => {
@@ -158,6 +175,7 @@ export default function App() {
       addMsg('user', "Topology Analysis", 'diagnostic');
       addMsg('model', analysis || "No issues found.", 'fix');
       extractCommands(analysis);
+      reloadTopology();
       setActiveTab('chat');
     } catch (err: any) {
       console.error('Analysis error:', err);
@@ -165,7 +183,7 @@ export default function App() {
     } finally {
       setIsTyping(false);
     }
-  }, [topologyYaml, selectedModel, addMsg, extractCommands]);
+  }, [topologyYaml, selectedModel, addMsg, extractCommands, reloadTopology]);
 
   const handleLogAnalysis = useCallback(async () => {
     if (!logInput.trim()) return;
@@ -421,6 +439,12 @@ export default function App() {
           try {
             const updated = await setLabDir(newDir);
             setLabDirState(updated);
+            // Auto-load topology from new CWD
+            const { found, yaml: content, filename } = await loadTopologyFromDisk();
+            if (found && content) {
+              setTopologyYaml(content);
+              addMsg('model', `✅ Auto-loaded topology: **${filename}**`);
+            }
           } catch {
             addMsg('model', "⚠️ Failed to change directory.");
           }

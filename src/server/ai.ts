@@ -212,6 +212,14 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
     globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${command}` }));
     const child = spawn("bash", ["-c", command], { cwd, shell: false });
     let stdout = "", stderr = "";
+    let killed = false;
+
+    // 60-second timeout per command — prevents queue from getting stuck
+    const timeout = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+      globalLogStream.log(JSON.stringify({ type: "stderr", text: "[Killed: 60s timeout exceeded]\n" }));
+    }, 60_000);
 
     child.stdout.on("data", (d) => {
       const raw = d.toString();
@@ -224,14 +232,17 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
       globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(raw) }));
     });
     child.on("close", (code) => {
+      clearTimeout(timeout);
       let out = stdout || "";
       if (stderr) out += `\nSTDERR:\n${stderr}`;
+      if (killed) out += "\n[Command killed after 60s timeout]";
       if (code !== 0 && !out) out = `Exited with code ${code}`;
       if (!out.trim()) out = "(No output)";
-      globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code}]` }));
+      globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` }));
       resolve(truncateText(stripAnsi(out), 3000));
     });
     child.on("error", (e) => {
+      clearTimeout(timeout);
       globalLogStream.log(JSON.stringify({ type: "error", text: `[Error] ${e.message}` }));
       resolve(`Error: ${e.message}`);
     });

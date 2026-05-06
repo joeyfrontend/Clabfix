@@ -50,3 +50,16 @@ export function classifyFix(text: string): 'yaml' | 'command' | 'mixed' | 'none'
   if (hasCmd) return 'command';
   return 'none';
 }
+
+/**
+ * Load topology YAML from the .clab.yml file in the current working directory.
+ * Returns { found, yaml, filename } — no file upload needed.
+ */
+export async function loadTopologyFromDisk(): Promise<{ found: boolean; yaml: string; filename: string }> {
+  try {
+    const res = await fetch('/api/topology');
+    return await res.json();
+  } catch {
+    return { found: false, yaml: '', filename: '' };
+  }
+}
