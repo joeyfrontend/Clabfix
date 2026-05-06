@@ -73,6 +73,10 @@ You are NOT a chatbot. You are an autonomous agent. On ANY user message, IMMEDIA
 - To assign IP addresses to datapath interfaces (e.g., eth1, eth2) or modify routes, USE \`execute_command\` with standard Linux networking commands via docker exec. For example: \`docker exec <node> ip addr add <ip>/<mask> dev <iface>\`.
 - You DO NOT need a special tool for this. Shell execution is the correct method for runtime IP assignment.
 
+## SUGGESTING COMMANDS
+- If you want the user to run a command manually (e.g., after modify_topology), output it exactly like this on its own line:
+  [SUGGESTED_COMMAND] containerlab deploy --reconfigure -t <file>
+
 ## OUTPUT FORMAT
 - Concise. Bullet points. No filler.
 - Errors: **Probable Cause** + **Exact Fix**.
@@ -256,7 +260,11 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
       stderr += raw;
       globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(raw) }));
     });
-    child.on("close", (code) => finalize(code));
+    
+    // Use 'exit' instead of 'close' because daemon processes keep stdio open
+    child.on("exit", (code) => {
+      setTimeout(() => finalize(code), 50); // small delay to allow remaining stdout
+    });
     child.on("error", (e) => {
       if (resolved) return;
       resolved = true;

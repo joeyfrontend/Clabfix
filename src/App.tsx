@@ -45,6 +45,7 @@ export default function App() {
   const [fixDetails, setFixDetails] = useState<string[]>([]);
   // Problem 4: Global Fix scanning state
   const [isScanning, setIsScanning] = useState(false);
+  const [suggestedCommand, setSuggestedCommand] = useState<string | null>(null);
 
   // Fetch lab directory on mount and auto-load topology from disk
   useEffect(() => {
@@ -129,8 +130,16 @@ export default function App() {
     setIsTyping(true);
     try {
       const history = newMessages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
-      // Problem 1: Always pass topologyYaml so backend has context
-      const response = await chatWithAI(history, topologyYaml, selectedModel);
+      let response = await chatWithAI(history, topologyYaml, selectedModel);
+      
+      const suggestedMatch = response.match(/\[SUGGESTED_COMMAND\]\s*(.+)/);
+      if (suggestedMatch) {
+        setSuggestedCommand(suggestedMatch[1].trim());
+        response = response.replace(/\[SUGGESTED_COMMAND\]\s*(.+)/g, '').trim();
+      } else {
+        setSuggestedCommand(null);
+      }
+
       setMessages(prev => [...prev, createMessage('model', response || "No response.", 'chat')]);
       extractCommands(response);
       // Reload topology in case modify_topology changed the YAML
@@ -373,6 +382,8 @@ export default function App() {
                 onApplyYaml={handleApplyYaml}
                 onRunCommand={handleRunCommand}
                 onDismiss={handleDismiss}
+                suggestedCommand={suggestedCommand}
+                onClearSuggestedCommand={() => setSuggestedCommand(null)}
               />
             )}
             {activeTab === 'topology' && (

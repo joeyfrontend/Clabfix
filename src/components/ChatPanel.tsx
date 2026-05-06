@@ -30,6 +30,8 @@ type ChatPanelProps = {
   onApplyYaml: (msg: Message) => void;
   onRunCommand: (msg: Message) => void;
   onDismiss: (id: string) => void;
+  suggestedCommand?: string | null;
+  onClearSuggestedCommand?: () => void;
 };
 
 type TermEntry = {
@@ -327,9 +329,20 @@ export default function ChatPanel({
   onApplyYaml,
   onRunCommand,
   onDismiss,
+  suggestedCommand,
+  onClearSuggestedCommand,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (suggestedCommand && inputRef.current) {
+      // Suggesting a terminal command directly in the input bar
+      inputRef.current.value = `$ ${suggestedCommand}`;
+      inputRef.current.focus();
+      if (onClearSuggestedCommand) onClearSuggestedCommand();
+    }
+  }, [suggestedCommand, onClearSuggestedCommand]);
 
   useEffect(() => {
     if (scrollRef.current) {

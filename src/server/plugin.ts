@@ -192,14 +192,25 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
         }, 15_000);
 
         const onLog = (data: string) => {
-          res.write(`data: ${data}\n\n`);
+          try {
+            if (!res.writableEnded) {
+              res.write(`data: ${data}\n\n`);
+            }
+          } catch (e) {
+            // Socket likely closed, ignore to prevent server crash
+          }
         };
 
         globalLogStream.on("log", onLog);
-        req.on("close", () => {
+        
+        const cleanup = () => {
           clearInterval(keepalive);
           globalLogStream.off("log", onLog);
-        });
+        };
+        
+        req.on("close", cleanup);
+        req.on("error", cleanup);
+        res.on("error", cleanup);
       });
 
       // ── /api/topology — Read .clab.yml from CWD ──
@@ -325,23 +336,31 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
               globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(str) }));
             });
 
-            child.on("close", (code) => {
-              activeProcesses.delete(child);
-              globalLogStream.log(
-                JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` })
-              );
-              res.setHeader("Content-Type", "application/json");
-              res.end(
-                JSON.stringify({
-                  stdout: stdout.trim(),
-                  stderr: stderr.trim(),
-                  exitCode: code ?? 0,
-                  error: code !== 0 ? `Process exited with code ${code}` : null,
-                })
-              );
+            let responseSent = false;
+            // Use 'exit' instead of 'close' to not wait for lingering daemons
+            child.on("exit", (code) => {
+              setTimeout(() => {
+                if (responseSent) return;
+                responseSent = true;
+                activeProcesses.delete(child);
+                globalLogStream.log(
+                  JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` })
+                );
+                res.setHeader("Content-Type", "application/json");
+                res.end(
+                  JSON.stringify({
+                    stdout: stdout.trim(),
+                    stderr: stderr.trim(),
+                    exitCode: code ?? 0,
+                    error: code !== 0 ? `Process exited with code ${code}` : null,
+                  })
+                );
+              }, 50);
             });
 
             child.on("error", (error) => {
+              if (responseSent) return;
+              responseSent = true;
               activeProcesses.delete(child);
               globalLogStream.log(
                 JSON.stringify({ type: "error", text: `Error: ${error.message}` })
