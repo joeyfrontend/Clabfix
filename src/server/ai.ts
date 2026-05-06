@@ -16,14 +16,14 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
-import { globalLogStream } from "./events";
+import { globalLogStream, activeProcesses } from "./events";
 
 const DEFAULT_MODEL = "google/gemini-2.0-flash-001";
 const MAX_HISTORY = 6;
 const MAX_MESSAGE_CHARS = 8_000;
 const MIN_REQUEST_GAP_MS = 1_000;
 const MAX_ATTEMPTS = 4;
-const MAX_AUTONOMOUS_LOOPS = 10;
+const MAX_AUTONOMOUS_LOOPS = 30;
 
 type ChatTurn = { role: MessageRole; parts: { text: string }[] };
 
@@ -210,16 +210,21 @@ export function checkCommandSafety(command: string, cwd: string, clabFile?: stri
 function executeCommandLocally(command: string, cwd: string): Promise<string> {
   return new Promise((resolve) => {
     globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${command}` }));
-    const child = spawn("bash", ["-c", command], { cwd, shell: false });
+    // detached: true is required to kill the process group (including children like containerlab)
+    const child = spawn("bash", ["-c", command], { cwd, shell: false, detached: true });
+    activeProcesses.add(child);
+
     let stdout = "", stderr = "";
     let killed = false;
 
-    // 60-second timeout per command — prevents queue from getting stuck
+    // 5-minute timeout per command — prevents queue from getting stuck on hanging tasks
     const timeout = setTimeout(() => {
       killed = true;
-      child.kill("SIGKILL");
-      globalLogStream.log(JSON.stringify({ type: "stderr", text: "[Killed: 60s timeout exceeded]\n" }));
-    }, 60_000);
+      if (child.pid) {
+        try { process.kill(-child.pid, "SIGKILL"); } catch (e) { child.kill("SIGKILL"); }
+      }
+      globalLogStream.log(JSON.stringify({ type: "stderr", text: "[Killed: 5m timeout exceeded]\n" }));
+    }, 300_000);
 
     child.stdout.on("data", (d) => {
       const raw = d.toString();
@@ -232,16 +237,18 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
       globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(raw) }));
     });
     child.on("close", (code) => {
+      activeProcesses.delete(child);
       clearTimeout(timeout);
       let out = stdout || "";
       if (stderr) out += `\nSTDERR:\n${stderr}`;
-      if (killed) out += "\n[Command killed after 60s timeout]";
+      if (killed) out += "\n[Command killed after 5m timeout]";
       if (code !== 0 && !out) out = `Exited with code ${code}`;
       if (!out.trim()) out = "(No output)";
       globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` }));
       resolve(truncateText(stripAnsi(out), 3000));
     });
     child.on("error", (e) => {
+      activeProcesses.delete(child);
       clearTimeout(timeout);
       globalLogStream.log(JSON.stringify({ type: "error", text: `[Error] ${e.message}` }));
       resolve(`Error: ${e.message}`);

@@ -15,7 +15,7 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { globalLogStream } from "./events";
+import { globalLogStream, activeProcesses, killAllProcesses } from "./events";
 import { AIRequestError, createAIService, checkCommandSafety, type AIRequest } from "./ai";
 
 function parseBody(req: Connect.IncomingMessage): Promise<any> {
@@ -91,6 +91,10 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
       // ── /api/ai — AI requests ──
       server.middlewares.use("/api/ai", (req, res) => {
+        // Disable Node.js server timeouts immediately — AI agentic loop can take 10+ minutes
+        req.setTimeout(0);
+        res.setTimeout(0);
+
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.end();
@@ -99,10 +103,6 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
         parseBody(req)
           .then(async (body: AIRequest) => {
-            // Disable socket timeout — AI agentic loop can take minutes
-            // when chaining multiple containerlab commands
-            if (req.socket) req.socket.setTimeout(0);
-            if (res.socket) res.socket.setTimeout(0);
             try {
               const text = await aiService.request(body);
               res.setHeader("Content-Type", "application/json");
@@ -175,6 +175,10 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
       // ── /api/stream — SSE event stream ──
       server.middlewares.use("/api/stream", (req, res) => {
+        // Disable timeout for long-lived SSE connection
+        req.setTimeout(0);
+        res.setTimeout(0);
+
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
@@ -243,11 +247,26 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
           });
       });
 
+      // ── /api/kill — Kill running commands ──
+      server.middlewares.use("/api/kill", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const killedCount = killAllProcesses();
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, killed: killedCount }));
+      });
+
       // ── /api/exec — Execute commands from terminal/frontend ──
-      // Problem 2 fix: spawn with ['bash', '-c', command] and { cwd } as
+      // spawn with ['bash', '-c', command] and { cwd } as
       // option — safe for paths containing spaces. All errors caught and
       // returned as JSON, never crash the SSE connection.
       server.middlewares.use("/api/exec", (req, res) => {
+        req.setTimeout(0);
+        res.setTimeout(0);
+
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.setHeader("Content-Type", "application/json");
@@ -289,7 +308,8 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
             // Strip ANSI escape codes for clean terminal display
             const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
 
-            const child = spawn("bash", ["-c", cmdToRun], { cwd: labDir });
+            const child = spawn("bash", ["-c", cmdToRun], { cwd: labDir, detached: true });
+            activeProcesses.add(child);
             let stdout = "";
             let stderr = "";
 
@@ -306,8 +326,9 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
             });
 
             child.on("close", (code) => {
+              activeProcesses.delete(child);
               globalLogStream.log(
-                JSON.stringify({ type: "done", text: `[exit ${code}]` })
+                JSON.stringify({ type: "done", text: `[exit ${code ?? 137}]` })
               );
               res.setHeader("Content-Type", "application/json");
               res.end(
@@ -321,6 +342,7 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
             });
 
             child.on("error", (error) => {
+              activeProcesses.delete(child);
               globalLogStream.log(
                 JSON.stringify({ type: "error", text: `Error: ${error.message}` })
               );

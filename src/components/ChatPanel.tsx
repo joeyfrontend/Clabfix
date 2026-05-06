@@ -110,6 +110,21 @@ const LiveTerminal = memo(function LiveTerminal() {
     }).catch(() => {});
   }, []);
 
+  // ── Kill ──────────────────────────────────────────────
+  const handleKill = useCallback(async () => {
+    try {
+      const res = await fetch('/api/kill', { method: 'POST' });
+      const data = await res.json();
+      setEntries(prev => [...prev, {
+        id: entryId.current++,
+        type: 'info',
+        text: `— Kill signal sent (${data.killed} processes terminated) —`
+      }]);
+    } catch (e) {
+      setEntries(prev => [...prev, { id: entryId.current++, type: 'error', text: 'Failed to send kill signal' }]);
+    }
+  }, []);
+
   // ── Clear ─────────────────────────────────────────────
   const handleClear = useCallback(() => {
     setEntries([{ id: entryId.current++, type: 'info', text: '— Terminal cleared —' }]);
@@ -138,12 +153,21 @@ const LiveTerminal = memo(function LiveTerminal() {
             />
           )}
         </span>
-        <button
-          onClick={handleClear}
-          className="cursor-pointer hover:text-white transition-colors text-[9px] uppercase"
-        >
-          Clear
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleKill}
+            className="cursor-pointer text-clab-warning hover:text-red-400 transition-colors text-[9px] uppercase font-bold"
+            title="Kill all running commands"
+          >
+            Kill
+          </button>
+          <button
+            onClick={handleClear}
+            className="cursor-pointer hover:text-white transition-colors text-[9px] uppercase"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       {/* Output area */}

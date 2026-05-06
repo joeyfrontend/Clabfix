@@ -12,9 +12,9 @@ type AIResponse = {
 };
 
 async function postAi(body: unknown): Promise<string> {
-  // 5-minute timeout — AI agentic loop can chain many commands
+  // 15-minute timeout — AI agentic loop can chain many commands
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300_000);
+  const timeoutId = setTimeout(() => controller.abort(), 900_000);
 
   try {
     const res = await fetch("/api/ai", {

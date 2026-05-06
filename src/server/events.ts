@@ -7,6 +7,26 @@
  *  3. Auto-denies after 30s timeout if user doesn't respond.
  */
 import { EventEmitter } from 'events';
+import { ChildProcess } from 'child_process';
+
+export const activeProcesses = new Set<ChildProcess>();
+
+export function killAllProcesses() {
+  let count = 0;
+  for (const child of activeProcesses) {
+    if (child.pid) {
+      try {
+        // Kill the entire process group (requires detached: true on spawn)
+        process.kill(-child.pid, 'SIGKILL');
+        count++;
+      } catch (e) {
+        try { child.kill('SIGKILL'); count++; } catch (e2) {}
+      }
+    }
+  }
+  activeProcesses.clear();
+  return count;
+}
 
 class LogStream extends EventEmitter {
   private pendingConfirm: { resolve: (v: boolean) => void } | null = null;
