@@ -16,7 +16,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { globalLogStream } from "./events";
-import { AIRequestError, createAIService, type AIRequest } from "./ai";
+import { AIRequestError, createAIService, checkCommandSafety, type AIRequest } from "./ai";
 
 function parseBody(req: Connect.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -190,6 +190,26 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
         });
       });
 
+      // ── /api/confirm — Approve/deny destructive commands ──
+      server.middlewares.use("/api/confirm", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        parseBody(req)
+          .then(({ approved }) => {
+            globalLogStream.respondConfirm(!!approved);
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ ok: true, approved: !!approved }));
+          })
+          .catch(() => {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "Invalid request" }));
+          });
+      });
+
       // ── /api/exec — Execute commands from terminal/frontend ──
       // Problem 2 fix: spawn with ['bash', '-c', command] and { cwd } as
       // option — safe for paths containing spaces. All errors caught and
@@ -216,10 +236,24 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
               return;
             }
 
-            globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${command}` }));
+            // Safety check for manual commands
+            const safety = checkCommandSafety(command, labDir);
+            if (safety.action === "reject") {
+              globalLogStream.log(JSON.stringify({ type: "stderr", text: `[BLOCKED] ${safety.reason}\n` }));
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ stdout: "", stderr: safety.reason, exitCode: 1, error: `Blocked: ${safety.reason}` }));
+              return;
+            }
 
-            // spawn with bash -c and cwd as option — handles spaces in paths
-            const child = spawn("bash", ["-c", command], { cwd: labDir });
+            let cmdToRun = command;
+            if (safety.action === "auto_fix") {
+              cmdToRun = safety.fixed;
+              globalLogStream.log(JSON.stringify({ type: "stderr", text: `[AUTO-FIX] ${safety.reason}\n` }));
+            }
+
+            globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${cmdToRun}` }));
+
+            const child = spawn("bash", ["-c", cmdToRun], { cwd: labDir });
             let stdout = "";
             let stderr = "";
 

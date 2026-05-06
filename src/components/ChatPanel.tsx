@@ -45,6 +45,7 @@ type TermEntry = {
 const LiveTerminal = memo(function LiveTerminal() {
   const [entries, setEntries] = useState<TermEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const entryId = useRef(0);
@@ -61,6 +62,7 @@ const LiveTerminal = memo(function LiveTerminal() {
         // Track running state
         if (data.type === 'exec') setIsRunning(true);
         if (data.type === 'done' || data.type === 'error') setIsRunning(false);
+        if (data.type === 'confirm_required') setPendingConfirm(data.text || '');
 
         setEntries((prev) => {
           const next = [...prev, { id: entryId.current++, type: data.type || 'stdout', text: data.text || '' }];
@@ -95,6 +97,16 @@ const LiveTerminal = memo(function LiveTerminal() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command: cmd }),
+    }).catch(() => {});
+  }, []);
+
+  // ── Confirm/deny destructive commands ──────────────────
+  const handleConfirm = useCallback((approved: boolean) => {
+    setPendingConfirm(null);
+    fetch('/api/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved }),
     }).catch(() => {});
   }, []);
 
@@ -185,6 +197,28 @@ const LiveTerminal = memo(function LiveTerminal() {
               <span key={entry.id} className="text-clab-muted/40 italic whitespace-pre-wrap inline-block w-full text-[10px]">
                 {entry.text}
               </span>
+            );
+          }
+
+          // Confirm required
+          if (entry.type === 'confirm_required') {
+            return (
+              <div key={entry.id} className="my-2 p-2 border border-clab-warning/40 bg-clab-warning/5 rounded">
+                <div className="text-clab-warning text-[10px] font-bold uppercase mb-1">⚠ Confirm Destructive Command</div>
+                <div className="text-gray-300 text-[10px] font-mono mb-2">$ {entry.text}</div>
+                {pendingConfirm === entry.text && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleConfirm(true)}
+                      className="text-[9px] px-3 py-0.5 bg-clab-accent text-black font-bold uppercase hover:bg-[#3ceb9f] transition-colors"
+                    >Approve</button>
+                    <button
+                      onClick={() => handleConfirm(false)}
+                      className="text-[9px] px-3 py-0.5 bg-clab-error/80 text-white font-bold uppercase hover:bg-clab-error transition-colors"
+                    >Deny</button>
+                  </div>
+                )}
+              </div>
             );
           }
 
