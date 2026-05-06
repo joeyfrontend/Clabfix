@@ -143,7 +143,7 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
               // Problem 2: Auto-run health check after CWD change so
               // the terminal shows signs of life immediately.
-              const healthCmd = `echo "Terminal ready at: $(pwd)"`;
+              const healthCmd = `echo "▶ Terminal ready — $(pwd)"`;
               const child = spawn("bash", ["-c", healthCmd], { cwd: labDir });
               child.stdout.on("data", (data) => {
                 globalLogStream.log(
@@ -178,8 +178,10 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
           "X-Accel-Buffering": "no",
         });
 
+        // data is already a JSON string from globalLogStream.log(JSON.stringify({...}))
+        // Writing it directly — no second JSON.stringify — so client gets a proper object.
         const onLog = (data: string) => {
-          res.write(`data: ${JSON.stringify(data)}\n\n`);
+          res.write(`data: ${data}\n\n`);
         };
 
         globalLogStream.on("log", onLog);

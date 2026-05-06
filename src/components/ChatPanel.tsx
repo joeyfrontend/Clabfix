@@ -1,17 +1,18 @@
 /**
  * ── src/components/ChatPanel.tsx ─────────────────────────
- * CHANGES (Problems 3 & 4):
- *  1. Problem 3: Chat input is now an uncontrolled component with its own
- *     useRef — its state is fully independent from the message list. Streaming
- *     updates to messages do NOT cause the input to re-render.
- *  2. Problem 3: Send button and Enter key are always enabled, even during
- *     streaming. Users can type and send at any time.
- *  3. Problem 4: Renamed "AGENT_OUTPUT.LOG" → "DIAGNOSTIC CHAT".
- *  4. Problem 4: Merged terminal input into the main input. Messages starting
- *     with $ or / are piped to /api/exec as terminal commands.
- *  5. Problem 4: "CLABFIX-AI is thinking..." animated indicator with blinking
- *     cursor, consistent with monospace green aesthetic.
- *  6. LiveTerminal now only shows SSE output (no separate input — merged below).
+ * CHANGES (Live Terminal):
+ *  1. Fixed SSE parsing — now correctly gets {type, text} objects since
+ *     server no longer double-encodes.
+ *  2. LiveTerminal has its OWN command input (separate from AI chat input).
+ *     User types command → runs via /api/exec → output streams into terminal.
+ *  3. Tracks running/idle state from SSE events (exec → running, done → idle).
+ *  4. Blinking green cursor when running, dim blinking ▋ when idle.
+ *  5. Command prompt lines shown as `$ command` in dimmer green.
+ *  6. Exit code shown in red if non-zero.
+ *  7. Smart auto-scroll: auto-scrolls on new output unless user scrolled up.
+ *     Resumes auto-scroll when user scrolls back to bottom.
+ *  8. Clear button resets to idle state with placeholder text.
+ *  9. Increased buffer to 500 entries for longer sessions.
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from 'react';
@@ -31,59 +32,198 @@ type ChatPanelProps = {
   onDismiss: (id: string) => void;
 };
 
+type TermEntry = {
+  id: number;
+  type: string;
+  text: string;
+};
+
 /**
- * LiveTerminal: SSE log viewer only (no input — merged into main input).
- * Memoized to avoid re-renders from parent state changes.
+ * LiveTerminal — real-time SSE output viewer with its own command input.
+ * Memoized to avoid re-renders from parent chat state changes.
  */
 const LiveTerminal = memo(function LiveTerminal() {
-  const [logs, setLogs] = useState<{ id: number; type: string; text: string }[]>([]);
+  const [entries, setEntries] = useState<TermEntry[]>([]);
+  const [isRunning, setIsRunning] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const logId = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const entryId = useRef(0);
+  const userScrolledUp = useRef(false);
 
+  // ── SSE connection ────────────────────────────────────
   useEffect(() => {
     const es = new EventSource('/api/stream');
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        setLogs((prev) => {
-          const next = [...prev, { id: logId.current++, ...data }];
-          return next.length > 200 ? next.slice(-200) : next;
+        if (!data || typeof data !== 'object') return;
+
+        // Track running state
+        if (data.type === 'exec') setIsRunning(true);
+        if (data.type === 'done' || data.type === 'error') setIsRunning(false);
+
+        setEntries((prev) => {
+          const next = [...prev, { id: entryId.current++, type: data.type || 'stdout', text: data.text || '' }];
+          return next.length > 500 ? next.slice(-500) : next;
         });
-      } catch {}
+      } catch { /* malformed SSE data — ignore */ }
     };
+    es.onerror = () => setIsRunning(false);
     return () => es.close();
   }, []);
 
+  // ── Smart auto-scroll ─────────────────────────────────
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    userScrolledUp.current = !atBottom;
+  }, []);
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [logs]);
+    if (!userScrolledUp.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries]);
+
+  // ── Manual command execution ──────────────────────────
+  const handleExec = useCallback(() => {
+    const cmd = inputRef.current?.value?.trim();
+    if (!cmd) return;
+    inputRef.current!.value = '';
+    fetch('/api/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd }),
+    }).catch(() => {});
+  }, []);
+
+  // ── Clear ─────────────────────────────────────────────
+  const handleClear = useCallback(() => {
+    setEntries([]);
+    setIsRunning(false);
+    userScrolledUp.current = false;
+  }, []);
+
+  // ── Parse exit code from done text ────────────────────
+  const parseExitCode = (text: string): number | null => {
+    const m = text.match(/\[exit (\d+)\]/);
+    return m ? parseInt(m[1], 10) : null;
+  };
 
   return (
-    <div className="bg-black/80 border-t border-b border-clab-border font-mono text-[10px] p-2 mt-4 flex flex-col shrink-0 shadow-inner h-48">
-      <div className="text-clab-muted uppercase tracking-widest text-[9px] mb-2 font-bold border-b border-clab-border/50 pb-1 flex justify-between shrink-0">
+    <div className="bg-black/90 border-t border-clab-border font-mono text-[11px] flex flex-col shrink-0 shadow-inner h-56">
+      {/* Header */}
+      <div className="text-clab-muted uppercase tracking-widest text-[9px] px-3 py-1.5 font-bold border-b border-clab-border/50 flex justify-between items-center shrink-0 bg-black/40">
         <span className="flex items-center gap-1.5">
           <Terminal size={10} />
           Live Terminal
+          {isRunning && (
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-clab-accent animate-pulse"
+              style={{ animationDuration: '0.6s' }}
+            />
+          )}
         </span>
-        <span className="cursor-pointer hover:text-white" onClick={() => setLogs([])}>
+        <button
+          onClick={handleClear}
+          className="cursor-pointer hover:text-white transition-colors text-[9px] uppercase"
+        >
           Clear
-        </span>
+        </button>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin" ref={scrollRef}>
-        {logs.map((l) => (
-          <span
-            key={l.id}
-            className={cn(
-              'whitespace-pre-wrap break-all inline-block w-full',
-              l.type === 'exec' ? 'text-clab-accent font-bold mt-2' : '',
-              l.type === 'stderr' || l.type === 'error' ? 'text-clab-warning' : '',
-              l.type === 'done' ? 'text-clab-muted italic mt-1 mb-2' : 'text-gray-300',
-              l.type === 'agent_thinking' ? 'text-clab-muted/60 italic' : ''
-            )}
-          >
-            {l.text}
-          </span>
-        ))}
+
+      {/* Output area */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin select-text"
+      >
+        {entries.length === 0 && !isRunning && (
+          <div className="text-clab-muted/30 italic text-[10px] flex items-center gap-1">
+            Terminal ready. AI commands and manual commands appear here.
+            <span className="animate-pulse text-clab-accent/30" style={{ animationDuration: '1.5s' }}>▋</span>
+          </div>
+        )}
+
+        {entries.map((entry) => {
+          // Done entries: parse exit code for coloring
+          if (entry.type === 'done') {
+            const code = parseExitCode(entry.text);
+            const isError = code !== null && code !== 0;
+            return (
+              <div key={entry.id} className={cn(
+                "text-[9px] italic mt-0.5 mb-1.5",
+                isError ? "text-clab-error" : "text-clab-muted/50"
+              )}>
+                {entry.text}
+              </div>
+            );
+          }
+
+          // Exec entries: command prompt line
+          if (entry.type === 'exec') {
+            return (
+              <div key={entry.id} className="text-clab-accent/70 font-bold mt-2.5 mb-0.5">
+                {entry.text}
+              </div>
+            );
+          }
+
+          // Stderr / error
+          if (entry.type === 'stderr' || entry.type === 'error') {
+            return (
+              <span key={entry.id} className="text-clab-warning whitespace-pre-wrap break-all inline-block w-full">
+                {entry.text}
+              </span>
+            );
+          }
+
+          // Agent thinking
+          if (entry.type === 'agent_thinking') {
+            return (
+              <span key={entry.id} className="text-clab-muted/40 italic whitespace-pre-wrap inline-block w-full text-[10px]">
+                {entry.text}
+              </span>
+            );
+          }
+
+          // Stdout (default)
+          return (
+            <span key={entry.id} className="text-gray-300 whitespace-pre-wrap break-all inline-block w-full">
+              {entry.text}
+            </span>
+          );
+        })}
+
+        {/* Blinking cursor — fast when running, slow when idle */}
+        {entries.length > 0 && (
+          isRunning ? (
+            <span
+              className="inline-block text-clab-accent font-bold animate-pulse"
+              style={{ animationDuration: '0.4s' }}
+            >▋</span>
+          ) : (
+            <span
+              className="inline-block text-clab-accent/30 animate-pulse"
+              style={{ animationDuration: '1.5s' }}
+            >▋</span>
+          )
+        )}
+      </div>
+
+      {/* Manual command input — separate from AI chat input */}
+      <div className="flex items-center border-t border-clab-border/50 px-3 py-1 shrink-0 bg-black/60">
+        <span className="text-clab-accent/50 font-bold mr-2 text-[10px]">$</span>
+        <input
+          ref={inputRef}
+          type="text"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleExec();
+          }}
+          placeholder="Run a command directly..."
+          className="flex-1 bg-transparent border-none outline-none text-[10px] text-clab-accent placeholder:text-clab-muted/30"
+        />
       </div>
     </div>
   );
@@ -121,8 +261,6 @@ export default function ChatPanel({
   onDismiss,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Problem 3: Uncontrolled input — its state is fully independent from
-  // the message list so streaming updates don't cause input re-renders.
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -131,15 +269,14 @@ export default function ChatPanel({
     }
   }, [messages, isTyping]);
 
-  // Problem 4: Unified input handler. $ or / prefix → exec, otherwise → AI chat.
+  // AI chat input handler — $ prefix still goes to exec for convenience
   const handleSubmit = useCallback(() => {
     const value = inputRef.current?.value?.trim();
     if (!value) return;
     if (inputRef.current) inputRef.current.value = '';
 
-    if (value.startsWith('$') || value.startsWith('/')) {
-      // Strip the $ prefix if present, keep / commands as-is
-      const cmd = value.startsWith('$') ? value.slice(1).trim() : value;
+    if (value.startsWith('$')) {
+      const cmd = value.slice(1).trim();
       if (cmd) onExecCommand(cmd);
     } else {
       onSend(value);
@@ -148,7 +285,6 @@ export default function ChatPanel({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-      {/* Problem 4: Renamed from AGENT_OUTPUT.LOG → DIAGNOSTIC CHAT */}
       <div className="bg-clab-surface px-4 py-1.5 text-[10px] border-b border-clab-border flex justify-between uppercase font-bold tracking-widest text-clab-muted shrink-0">
         <span>Diagnostic Chat</span>
         <span>{messages.length} messages</span>
@@ -178,14 +314,13 @@ export default function ChatPanel({
             ))}
           </AnimatePresence>
 
-          {/* Problem 4: Animated thinking indicator */}
           {isTyping && <ThinkingIndicator />}
         </div>
 
         <LiveTerminal />
       </div>
 
-      {/* Problem 3 & 4: Unified input bar — uncontrolled, always enabled */}
+      {/* AI chat input bar */}
       <div className="h-12 bg-clab-panel border-t border-clab-border flex items-center px-4 shrink-0">
         <span className="text-clab-accent font-bold mr-3">{'>'}</span>
         <input
