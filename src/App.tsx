@@ -12,6 +12,7 @@ import TopologyEditor from './components/TopologyEditor';
 import LogAnalyzer from './components/LogAnalyzer';
 import ConnectivityCheck from './components/ConnectivityCheck';
 import MetricsPanel from './components/MetricsPanel';
+import DirectoryPicker from './components/DirectoryPicker';
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -24,6 +25,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
   const [labDir, setLabDirState] = useState('');
   const [selectedModel, setSelectedModel] = useState('google/gemini-2.0-flash-001');
+  const [isDirPickerOpen, setIsDirPickerOpen] = useState(false);
 
   // Fetch lab directory on mount
   useEffect(() => {
@@ -255,18 +257,7 @@ export default function App() {
               <div 
                 className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded" 
                 title="Click to change working directory"
-                onClick={async () => {
-                  const newDir = prompt("Enter the absolute path to your Containerlab working directory:", labDir);
-                  if (newDir && newDir !== labDir) {
-                    try {
-                      // We need to import setLabDir, so I'll assume it's imported at the top
-                      const updated = await import('./lib/api').then(m => m.setLabDir(newDir));
-                      setLabDirState(updated);
-                    } catch (e) {
-                      alert("Failed to change directory. Does it exist?");
-                    }
-                  }
-                }}
+                onClick={() => setIsDirPickerOpen(true)}
               >
                 CWD: {labDir}
               </div>
@@ -289,19 +280,7 @@ export default function App() {
                 onAnalyze={handleTopologyAnalyze} isAnalyzing={isTyping}
                 onFileLoaded={(fileName) => {
                   addMsg('model', `✅ Loaded topology file: **${fileName}**`);
-                  // Prompt user to confirm the lab directory
-                  const dir = prompt(
-                    'Set the working directory for this lab (absolute path to the folder containing your .clab.yml):',
-                    labDir || '/home'
-                  );
-                  if (dir && dir.trim()) {
-                    setLabDir(dir.trim()).then((updated) => {
-                      setLabDirState(updated);
-                      addMsg('model', `📂 Working directory set to: **${updated}**`);
-                    }).catch(() => {
-                      addMsg('model', '⚠️ Failed to update working directory.');
-                    });
-                  }
+                  setIsDirPickerOpen(true);
                 }}
               />
             )}
@@ -336,6 +315,24 @@ export default function App() {
           </div>
         </footer>
       </main>
+      
+      <DirectoryPicker 
+        isOpen={isDirPickerOpen} 
+        onClose={() => setIsDirPickerOpen(false)} 
+        initialPath={labDir || '/'}
+        onSelect={async (newDir) => {
+          try {
+            // Need to import setLabDir locally or use the one at the top
+            const { setLabDir } = await import('./lib/api');
+            const updated = await setLabDir(newDir);
+            setLabDirState(updated);
+            // Optionally could add a message if we had access to addMsg here, 
+            // but we don't have it in scope unless we just let the UI update handle the visual confirmation
+          } catch (e) {
+            alert("Failed to change directory.");
+          }
+        }}
+      />
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import type { Plugin, Connect } from "vite";
 import { exec, spawn } from "child_process";
+import fs from "fs";
+import path from "path";
 import { globalLogStream } from "./events";
 import { AIRequestError, createAIService, type AIRequest } from "./ai";
 
@@ -30,6 +32,28 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
   return {
     name: "clabfix-api",
     configureServer(server) {
+      server.middlewares.use("/api/fs", (req, res, next) => {
+        if (req.method === "GET") {
+          const url = new URL(req.url || "/", `http://${req.headers.host}`);
+          const dirPath = url.searchParams.get("path") || process.cwd();
+          
+          try {
+            const items = fs.readdirSync(dirPath, { withFileTypes: true });
+            const folders = items
+              .filter(item => item.isDirectory() && !item.name.startsWith('.'))
+              .map(item => ({ name: item.name, path: path.join(dirPath, item.name).replace(/\\/g, '/') }));
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ folders, current: dirPath.replace(/\\/g, '/') }));
+          } catch (err: any) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: err.message }));
+          }
+          return;
+        }
+        next();
+      });
+
       server.middlewares.use("/api/ai", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;

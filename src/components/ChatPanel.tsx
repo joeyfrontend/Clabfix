@@ -39,8 +39,7 @@ function LiveTerminal() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [logs]);
 
-  if (logs.length === 0) return null;
-
+  // Terminal is always visible now
   return (
     <div className="bg-black/80 border-t border-b border-clab-border font-mono text-[10px] p-2 mt-4 flex flex-col shrink-0 shadow-inner h-64">
       <div className="text-clab-muted uppercase tracking-widest text-[9px] mb-2 font-bold border-b border-clab-border/50 pb-1 flex justify-between shrink-0">
