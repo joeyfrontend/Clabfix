@@ -17,7 +17,7 @@ AI-powered autonomous troubleshooting agent for [Containerlab](https://container
 |---|---|
 | Frontend | React 19, TypeScript |
 | Styling | Tailwind CSS v4 |
-| AI Backend | Local Node.js Vite Proxy + OpenRouter API (native `fetch`) |
+| AI Backend | Standalone Express Server + OpenRouter API |
 | Build | Vite 6 |
 | Animations | Motion (Framer Motion) |
 | System Access| `child_process` execution + `fs` filesystem browsing |
@@ -25,6 +25,10 @@ AI-powered autonomous troubleshooting agent for [Containerlab](https://container
 ## Getting Started
 
 ```bash
+# Clone the repository
+git clone https://github.com/joeyfrontend/Clabfix.git
+cd Clabfix
+
 # Install dependencies
 npm install
 
@@ -52,7 +56,7 @@ src/
 │   ├── api.ts               # Terminal & FS commands bridging
 │   └── utils.ts             # Utility functions
 ├── server/
-│   ├── plugin.ts            # Vite backend middleware (Terminal, AI, FS)
+│   ├── index.ts             # Standalone Express backend API
 │   ├── ai.ts                # OpenRouter AI core logic & Tool Calling
 │   └── events.ts            # Server-Sent Events stream manager
 └── components/

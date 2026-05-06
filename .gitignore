@@ -27,3 +27,8 @@ coverage/
 *.njsproj
 *.sln
 *.sw?
+# Containerlab artifacts
+clab-*/
+.topo.json
+*.bak
+scratch/
