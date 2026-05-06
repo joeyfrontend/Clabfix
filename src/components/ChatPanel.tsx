@@ -112,8 +112,9 @@ const LiveTerminal = memo(function LiveTerminal() {
 
   // ── Clear ─────────────────────────────────────────────
   const handleClear = useCallback(() => {
-    setEntries([]);
+    setEntries([{ id: entryId.current++, type: 'info', text: '— Terminal cleared —' }]);
     setIsRunning(false);
+    setPendingConfirm(null);
     userScrolledUp.current = false;
   }, []);
 
@@ -197,6 +198,15 @@ const LiveTerminal = memo(function LiveTerminal() {
               <span key={entry.id} className="text-clab-muted/40 italic whitespace-pre-wrap inline-block w-full text-[10px]">
                 {entry.text}
               </span>
+            );
+          }
+
+          // Info (e.g. terminal cleared)
+          if (entry.type === 'info') {
+            return (
+              <div key={entry.id} className="text-clab-muted/40 italic text-[9px] text-center my-1">
+                {entry.text}
+              </div>
             );
           }
 

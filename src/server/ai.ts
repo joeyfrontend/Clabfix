@@ -136,6 +136,12 @@ function parseApiError(error: unknown): ParsedError {
   return { message: msg, retryable: false, statusCode: 500 };
 }
 
+/** Strip ANSI escape codes from command output for clean terminal display. */
+function stripAnsi(text: string): string {
+  // Matches all ANSI escape sequences: colors, cursor movement, etc.
+  return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
 // ── Find .clab.yml in CWD ───────────────────────────────
 
 function findClabFile(cwd: string): string | null {
@@ -207,15 +213,23 @@ function executeCommandLocally(command: string, cwd: string): Promise<string> {
     const child = spawn("bash", ["-c", command], { cwd, shell: false });
     let stdout = "", stderr = "";
 
-    child.stdout.on("data", (d) => { const s = d.toString(); stdout += s; globalLogStream.log(JSON.stringify({ type: "stdout", text: s })); });
-    child.stderr.on("data", (d) => { const s = d.toString(); stderr += s; globalLogStream.log(JSON.stringify({ type: "stderr", text: s })); });
+    child.stdout.on("data", (d) => {
+      const raw = d.toString();
+      stdout += raw;
+      globalLogStream.log(JSON.stringify({ type: "stdout", text: stripAnsi(raw) }));
+    });
+    child.stderr.on("data", (d) => {
+      const raw = d.toString();
+      stderr += raw;
+      globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(raw) }));
+    });
     child.on("close", (code) => {
       let out = stdout || "";
       if (stderr) out += `\nSTDERR:\n${stderr}`;
       if (code !== 0 && !out) out = `Exited with code ${code}`;
       if (!out.trim()) out = "(No output)";
       globalLogStream.log(JSON.stringify({ type: "done", text: `[exit ${code}]` }));
-      resolve(truncateText(out, 3000));
+      resolve(truncateText(stripAnsi(out), 3000));
     });
     child.on("error", (e) => {
       globalLogStream.log(JSON.stringify({ type: "error", text: `[Error] ${e.message}` }));

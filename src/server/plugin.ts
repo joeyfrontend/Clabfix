@@ -99,6 +99,10 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
         parseBody(req)
           .then(async (body: AIRequest) => {
+            // Disable socket timeout — AI agentic loop can take minutes
+            // when chaining multiple containerlab commands
+            if (req.socket) req.socket.setTimeout(0);
+            if (res.socket) res.socket.setTimeout(0);
             try {
               const text = await aiService.request(body);
               res.setHeader("Content-Type", "application/json");
@@ -253,6 +257,9 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
 
             globalLogStream.log(JSON.stringify({ type: "exec", text: `$ ${cmdToRun}` }));
 
+            // Strip ANSI escape codes for clean terminal display
+            const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+
             const child = spawn("bash", ["-c", cmdToRun], { cwd: labDir });
             let stdout = "";
             let stderr = "";
@@ -260,14 +267,13 @@ export function clabfixApi(options: { apiKey?: string; model?: string } = {}): P
             child.stdout.on("data", (data) => {
               const str = data.toString();
               stdout += str;
-              // Stream immediately to SSE
-              globalLogStream.log(JSON.stringify({ type: "stdout", text: str }));
+              globalLogStream.log(JSON.stringify({ type: "stdout", text: stripAnsi(str) }));
             });
 
             child.stderr.on("data", (data) => {
               const str = data.toString();
               stderr += str;
-              globalLogStream.log(JSON.stringify({ type: "stderr", text: str }));
+              globalLogStream.log(JSON.stringify({ type: "stderr", text: stripAnsi(str) }));
             });
 
             child.on("close", (code) => {
