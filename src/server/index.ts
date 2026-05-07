@@ -149,17 +149,20 @@ app.get("/api/stream", (req, res) => {
 app.get("/api/topology", (req, res) => {
   try {
     const items = fs.readdirSync(labDir);
-    const clabFile = items.find(item => item.endsWith('.clab.yml') || item.endsWith('.clab.yaml'));
+    const clabFiles = items.filter(item => item.endsWith('.clab.yml') || item.endsWith('.clab.yaml'));
     
-    if (clabFile) {
-      const filePath = path.join(labDir, clabFile);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      res.json({ found: true, yaml: content, filename: clabFile });
-    } else {
-      res.json({ found: false, yaml: null, filename: null });
+    if (clabFiles.length > 0) {
+      const fileToLoad = (req.query.file as string) || clabFiles[0];
+      if (clabFiles.includes(fileToLoad)) {
+        const filePath = path.join(labDir, fileToLoad);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        res.json({ found: true, yaml: content, filename: fileToLoad, availableFiles: clabFiles });
+        return;
+      }
     }
+    res.json({ found: false, yaml: null, filename: null, availableFiles: [] });
   } catch (err: any) {
-    res.json({ found: false, yaml: null, error: err.message });
+    res.json({ found: false, yaml: null, error: err.message, availableFiles: [] });
   }
 });
 

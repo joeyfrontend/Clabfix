@@ -55,11 +55,12 @@ export function classifyFix(text: string): 'yaml' | 'command' | 'mixed' | 'none'
  * Load topology YAML from the .clab.yml file in the current working directory.
  * Returns { found, yaml, filename } — no file upload needed.
  */
-export async function loadTopologyFromDisk(): Promise<{ found: boolean; yaml: string; filename: string }> {
+export async function loadTopologyFromDisk(file?: string): Promise<{ found: boolean; yaml: string; filename: string; availableFiles: string[] }> {
   try {
-    const res = await fetch('/api/topology');
+    const url = file ? `/api/topology?file=${encodeURIComponent(file)}` : '/api/topology';
+    const res = await fetch(url);
     return await res.json();
   } catch {
-    return { found: false, yaml: '', filename: '' };
+    return { found: false, yaml: '', filename: '', availableFiles: [] };
   }
 }

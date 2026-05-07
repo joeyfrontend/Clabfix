@@ -43,17 +43,20 @@ export default function App() {
   const [yamlFileDir, setYamlFileDir] = useState('');
   // Problem 4: Track executed commands for the clickable fixes counter
   const [fixDetails, setFixDetails] = useState<string[]>([]);
-  // Problem 4: Global Fix scanning state
   const [isScanning, setIsScanning] = useState(false);
   const [suggestedCommand, setSuggestedCommand] = useState<string | null>(null);
+  const [availableFiles, setAvailableFiles] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   // Fetch lab directory on mount and auto-load topology from disk
   useEffect(() => {
     getLabDir().then((dir) => {
       setLabDirState(dir);
-      // Auto-load topology from CWD — no manual upload needed
-      loadTopologyFromDisk().then(({ found, yaml: content, filename }) => {
-        if (found && content) {
+      // Auto-load topology from CWD
+      loadTopologyFromDisk().then(({ found, yaml: content, filename, availableFiles: files }) => {
+        if (files) setAvailableFiles(files);
+        if (found && content && filename) {
+          setSelectedFile(filename);
           setTopologyYaml(content);
           addMsg('model', `✅ Auto-loaded topology: **${filename}**`);
         }
@@ -62,10 +65,21 @@ export default function App() {
   }, []);
 
   // Reload topology from disk (called after CWD change & AI responses)
-  const reloadTopology = useCallback(async () => {
-    const { found, yaml: content } = await loadTopologyFromDisk();
-    if (found && content) setTopologyYaml(content);
+  const reloadTopology = useCallback(async (fileToLoad?: string) => {
+    const { found, yaml: content, filename, availableFiles: files } = await loadTopologyFromDisk(fileToLoad);
+    if (files) setAvailableFiles(files);
+    if (found && content && filename) {
+      setSelectedFile(filename);
+      setTopologyYaml(content);
+    }
   }, []);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const file = e.target.value;
+    if (!file) return;
+    await reloadTopology(file);
+    addMsg('model', `✅ Switched topology to: **${file}**`);
+  };
 
   // Parse topology YAML
   const parsedTopology = useMemo(() => {
@@ -391,6 +405,18 @@ export default function App() {
               <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
               <option value="qwen/qwen-2.5-coder-32b-instruct">Qwen 2.5 Coder</option>
             </select>
+            {availableFiles.length > 0 && (
+              <select
+                value={selectedFile || ''}
+                onChange={handleFileSelect}
+                className="bg-black/40 border border-clab-border text-clab-accent text-[10px] uppercase font-bold p-1 outline-none cursor-pointer"
+                title="Select Topology File"
+              >
+                {availableFiles.map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            )}
             {labDir && (
               <div
                 className="text-[10px] text-clab-muted uppercase tracking-tight truncate max-w-[400px] cursor-pointer hover:text-white transition-colors bg-black/20 px-2 py-1 rounded"
